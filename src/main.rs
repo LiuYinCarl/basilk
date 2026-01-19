@@ -46,6 +46,7 @@ pub enum ViewMode {
     ChangePriorityTask,
     AddTask,
     DeleteTask,
+    ViewTaskDetails,
 
     InfoMigration,
 }
@@ -281,6 +282,13 @@ impl App {
 
                                 App::change_view(self, ViewMode::DeleteTask);
                             }
+                            Char('v') => {
+                                if items.is_empty() {
+                                    continue;
+                                }
+
+                                App::change_view(self, ViewMode::ViewTaskDetails);
+                            }
                             Down | Tab | Char('j') => {
                                 self.next(&items);
                             }
@@ -380,6 +388,11 @@ impl App {
                             }
                             _ => {}
                         },
+                        ViewMode::ViewTaskDetails => match key.code {
+                            _ => {
+                                App::change_view(self, ViewMode::ViewTasks);
+                            }
+                        },
 
                         ViewMode::InfoMigration => match key.code {
                             _ => {
@@ -454,6 +467,10 @@ impl App {
             View::show_select_task_priority_modal(self, priority_items, f, area)
         }
 
+        if self.view_mode == ViewMode::ViewTaskDetails {
+            View::show_task_details_modal(self, f, area)
+        }
+
         if self.config.ui.show_help {
             View::show_footer_helper(self, f, footer_area)
         }
@@ -502,6 +519,7 @@ impl App {
             ViewMode::ChangePriorityTask => return &mut self.selected_priority_task_index,
             ViewMode::AddTask => return &mut self.selected_task_index,
             ViewMode::DeleteTask => return &mut self.selected_task_index,
+            ViewMode::ViewTaskDetails => return &mut self.selected_task_index,
 
             ViewMode::InfoMigration => return &mut self.selected_project_index,
         };

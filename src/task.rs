@@ -4,6 +4,7 @@ use ratatui::{
     widgets::ListItem,
 };
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{json::Json, util::Util, App};
 
@@ -12,6 +13,10 @@ pub struct Task {
     pub title: String,
     pub status: String,
     pub priority: u8,
+    #[serde(default)]
+    pub created_at: Option<u64>,
+    #[serde(default)]
+    pub completed_at: Option<u64>,
 }
 
 pub const TASK_STATUS_DONE: &str = "Done";
@@ -28,13 +33,20 @@ const TASK_STATUSES_SORT_ORDER: [&'static str; 3] =
 pub const TASK_PRIORITIES: [u8; 4] = [1, 2, 3, 0];
 
 impl Task {
-    fn get_status_color(status: &String) -> ratatui::prelude::Color {
+    pub fn get_status_color(status: &String) -> ratatui::prelude::Color {
         match status.as_str() {
             TASK_STATUS_DONE => return Color::LightGreen,
             TASK_STATUS_ON_GOING => return Color::Yellow,
             TASK_STATUS_UP_NEXT => return Color::LightMagenta,
             _ => return Color::Gray,
         }
+    }
+
+    fn current_timestamp() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
     }
 
     pub fn load_statues_items(items: &mut Vec<ListItem>) {
@@ -73,6 +85,8 @@ impl Task {
                 title: "".to_string(),
                 status: "".to_string(),
                 priority: 0,
+                created_at: None,
+                completed_at: None,
             })
             .clone()
             .title;
@@ -150,6 +164,8 @@ impl Task {
             title: value.to_string(),
             status: TASK_STATUS_UP_NEXT.to_string(),
             priority: 0,
+            created_at: Some(Self::current_timestamp()),
+            completed_at: None,
         };
 
         let mut internal_projects = app.projects.clone();
@@ -176,14 +192,19 @@ impl Task {
         let mut internal_projects = app.projects.clone();
         let status = value.to_string();
 
-        internal_projects[app.selected_project_index.selected().unwrap()].tasks
-            [app.selected_task_index.selected().unwrap()]
-        .status = status.clone();
+        let task = &mut internal_projects[app.selected_project_index.selected().unwrap()].tasks
+            [app.selected_task_index.selected().unwrap()];
+
+        task.status = status.clone();
 
         if status == TASK_STATUS_DONE {
-            internal_projects[app.selected_project_index.selected().unwrap()].tasks
-                [app.selected_task_index.selected().unwrap()]
-            .priority = 0
+            task.priority = 0;
+            if task.completed_at.is_none() {
+                task.completed_at = Some(Self::current_timestamp());
+            }
+        } else {
+            // If changing from Done to another status, clear completion time
+            task.completed_at = None;
         }
 
         Json::write(internal_projects);
