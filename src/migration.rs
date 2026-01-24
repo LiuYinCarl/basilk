@@ -1,10 +1,10 @@
 use serde_json::{
-    json, to_string, Map,
+    json, to_string,
     Value::{self},
 };
 
-//                              sha of 0.1.0     0.2.0
-pub static JSON_VERSIONS: [&str; 2] = ["6ad96", "911fc"];
+//                              sha of 0.1.0     0.2.0    0.2.2
+pub static JSON_VERSIONS: [&str; 3] = ["6ad96", "911fc", "a4e1b"];
 
 pub struct Migration;
 
@@ -13,7 +13,8 @@ impl Migration {
         // Mapper between json version and the relative migration
         let mapper: Vec<(&str, String)> = vec![
             ("6ad96", "".to_string()),
-            ("911fc", Migration::add_priority(original_json)),
+            ("911fc", Migration::add_priority(original_json.clone())),
+            ("a4e1b", Migration::add_note(original_json)),
         ];
 
         // The start index where the migration are picked
@@ -33,39 +34,17 @@ impl Migration {
     }
 
     // Migrations
-    fn add_priority(original_json: Vec<Value>) -> String {
-        let mut internal_json = original_json.clone();
+    fn add_priority(mut json: Vec<Value>) -> String {
+        for t in json.iter_mut().flat_map(|p| p.get_mut("tasks")).flat_map(|t| t.as_array_mut()).flatten() {
+            t.as_object_mut().unwrap().insert("priority".to_string(), json!(0));
+        }
+        to_string(&json).unwrap()
+    }
 
-        let new_json: Vec<Map<String, Value>> = internal_json
-            .iter_mut()
-            .map(|p| {
-                // Get all tasks from each project and convert into "Map" type from serde
-                // in order to do some operations with the json
-                // Vec = Array ; Map = Object
-                let mut tasks = serde_json::from_value::<Vec<Map<String, Value>>>(
-                    p.get("tasks").unwrap().clone(),
-                )
-                .unwrap();
-
-                // Add to each task a new key value (i.e. {priority: 0})
-                tasks.iter_mut().for_each(|t| {
-                    // Entry and or_insert methods are used for add a new key
-                    // cf. https://docs.rs/serde_json/latest/serde_json/map/enum.Entry.html#method.or_insert
-                    t.entry("priority").or_insert(json!(0));
-                });
-
-                // Convert "p" into the "Map" type from serde in order to do some operations with the json
-                let mut project = serde_json::from_value::<Map<String, Value>>(p.clone()).unwrap();
-
-                // Replace the "tasks" key with the new one
-                // Insert method is used for replace a new with a new value
-                // cf. https://docs.rs/serde_json/latest/serde_json/map/struct.Map.html#method.insert
-                project.insert("tasks".to_string(), json!(tasks)).unwrap();
-
-                return project;
-            })
-            .collect();
-
-        return to_string(&new_json).unwrap();
+    fn add_note(mut json: Vec<Value>) -> String {
+        for t in json.iter_mut().flat_map(|p| p.get_mut("tasks")).flat_map(|t| t.as_array_mut()).flatten() {
+            t.as_object_mut().unwrap().insert("note".to_string(), json!(""));
+        }
+        to_string(&json).unwrap()
     }
 }

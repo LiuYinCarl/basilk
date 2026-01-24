@@ -47,6 +47,7 @@ pub enum ViewMode {
     AddTask,
     DeleteTask,
     ViewTaskDetails,
+    EditTaskNote,
 
     InfoMigration,
 }
@@ -289,6 +290,17 @@ impl App {
 
                                 App::change_view(self, ViewMode::ViewTaskDetails);
                             }
+                            Char('e') => {
+                                if items.is_empty() {
+                                    continue;
+                                }
+
+                                input = input
+                                    .clone()
+                                    .with_value(Task::get_current(self).note.clone());
+
+                                App::change_view(self, ViewMode::EditTaskNote);
+                            }
                             Down | Tab | Char('j') => {
                                 self.next(&items);
                             }
@@ -389,8 +401,31 @@ impl App {
                             _ => {}
                         },
                         ViewMode::ViewTaskDetails => match key.code {
+                            Char('e') => {
+                                input = input
+                                    .clone()
+                                    .with_value(Task::get_current(self).note.clone());
+
+                                App::change_view(self, ViewMode::EditTaskNote);
+                            }
                             _ => {
                                 App::change_view(self, ViewMode::ViewTasks);
+                            }
+                        },
+                        ViewMode::EditTaskNote => match key.code {
+                            Enter => {
+                                Task::update_note(self, &mut items, input.value());
+                                input.reset();
+
+                                App::change_view(self, ViewMode::ViewTaskDetails);
+                            }
+                            Esc => {
+                                input.reset();
+
+                                App::change_view(self, ViewMode::ViewTaskDetails);
+                            }
+                            _ => {
+                                input.handle_event(&Event::Key(key));
                             }
                         },
 
@@ -453,6 +488,10 @@ impl App {
 
         if self.view_mode == ViewMode::RenameTask || self.view_mode == ViewMode::RenameProject {
             View::show_rename_item_modal(f, area, input)
+        }
+
+        if self.view_mode == ViewMode::EditTaskNote {
+            View::show_edit_note_modal(f, area, input)
         }
 
         if self.view_mode == ViewMode::DeleteTask || self.view_mode == ViewMode::DeleteProject {
@@ -520,6 +559,7 @@ impl App {
             ViewMode::AddTask => return &mut self.selected_task_index,
             ViewMode::DeleteTask => return &mut self.selected_task_index,
             ViewMode::ViewTaskDetails => return &mut self.selected_task_index,
+            ViewMode::EditTaskNote => return &mut self.selected_task_index,
 
             ViewMode::InfoMigration => return &mut self.selected_project_index,
         };

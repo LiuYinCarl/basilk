@@ -17,6 +17,8 @@ pub struct Task {
     pub created_at: Option<u64>,
     #[serde(default)]
     pub completed_at: Option<u64>,
+    #[serde(default)]
+    pub note: String,
 }
 
 pub const TASK_STATUS_DONE: &str = "Done";
@@ -87,6 +89,7 @@ impl Task {
                 priority: 0,
                 created_at: None,
                 completed_at: None,
+                note: "".to_string(),
             })
             .clone()
             .title;
@@ -166,6 +169,7 @@ impl Task {
             priority: 0,
             created_at: Some(Self::current_timestamp()),
             completed_at: None,
+            note: "".to_string(),
         };
 
         let mut internal_projects = app.projects.clone();
@@ -183,6 +187,17 @@ impl Task {
         internal_projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()]
         .title = value.to_string();
+
+        Json::write(internal_projects);
+        Task::reload(app, items)
+    }
+
+    pub fn update_note(app: &mut App, items: &mut Vec<ListItem>, value: &str) {
+        let mut internal_projects = app.projects.clone();
+
+        internal_projects[app.selected_project_index.selected().unwrap()].tasks
+            [app.selected_task_index.selected().unwrap()]
+        .note = value.to_string();
 
         Json::write(internal_projects);
         Task::reload(app, items)

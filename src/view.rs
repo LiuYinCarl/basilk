@@ -32,6 +32,10 @@ impl View {
         Ui::create_input_modal("Rename", f, area, input)
     }
 
+    pub fn show_edit_note_modal(f: &mut Frame, area: Rect, input: &Input) {
+        Ui::create_input_modal("Note", f, area, input)
+    }
+
     pub fn show_delete_item_modal(app: &mut App, f: &mut Frame, area: Rect) {
         let title = match app.view_mode {
             ViewMode::DeleteTask => &Task::get_current(app).title,
@@ -174,6 +178,11 @@ impl View {
                 Span::styled(priority_text, Style::default().fg(Color::Red)),
             ]),
             Line::raw(""),
+            Line::from(vec![
+                Span::styled("Note: ", Style::default().fg(Color::Cyan)),
+                Span::raw(&task.note),
+            ]),
+            Line::raw(""),
         ];
 
         // Add creation time if available
@@ -210,6 +219,7 @@ impl View {
 
         let widget = Paragraph::new(Text::from(lines))
             .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true })
             .block(Block::bordered().title(" Task Details "));
 
         Ui::create_modal(f, 60, 18, area, widget)
@@ -232,7 +242,8 @@ impl View {
             ViewMode::ChangePriorityTask => "<Up/Down k/j> next/prev - <Enter> confirm - <Esc> cancel",
             ViewMode::AddTask => "<Enter> confirm - <Esc> cancel",
             ViewMode::DeleteTask => "<y> confirm - <n> cancel",
-            ViewMode::ViewTaskDetails => "<Any key> close",
+            ViewMode::ViewTaskDetails => "<e> edit note - <Any other key> close",
+            ViewMode::EditTaskNote => "<Enter> confirm - <Esc> cancel",
             ViewMode::InfoMigration => ""
         };
 
