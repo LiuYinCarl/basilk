@@ -80,11 +80,11 @@ fn restore_terminal() -> Result<(), Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     Cli::read();
 
-    // setup terminal
-    let terminal = init_terminal()?;
-
     // Check the version of the json file
     let were_applied_migrations = Json::check()?;
+
+    // setup terminal
+    let terminal = init_terminal()?;
 
     // create app and run it
     App::setup().run(terminal, were_applied_migrations)?;

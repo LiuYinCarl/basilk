@@ -1,7 +1,4 @@
-use serde_json::{
-    json, to_string,
-    Value::{self},
-};
+use crate::project::Project;
 
 //                              sha of 0.1.0     0.2.0    0.2.2
 pub static JSON_VERSIONS: [&str; 3] = ["6ad96", "911fc", "a4e1b"];
@@ -9,42 +6,50 @@ pub static JSON_VERSIONS: [&str; 3] = ["6ad96", "911fc", "a4e1b"];
 pub struct Migration;
 
 impl Migration {
-    pub fn get_migrations(version: &str, original_json: Vec<Value>) -> Vec<(&str, String)> {
+    pub fn get_migrations(version: &str, original_json: Vec<Project>) -> Vec<(&str, Vec<Project>)> {
         // Mapper between json version and the relative migration
-        let mapper: Vec<(&str, String)> = vec![
-            ("6ad96", "".to_string()),
-            ("911fc", Migration::add_priority(original_json.clone())),
-            ("a4e1b", Migration::add_note(original_json)),
+        let mapper: Vec<(&str, fn(Vec<Project>) -> Vec<Project>)> = vec![
+            ("6ad96", |data| data),
+            ("911fc", Migration::add_priority),
+            ("a4e1b", Migration::add_note),
         ];
 
         // The start index where the migration are picked
         let start_index = mapper
-            .clone()
-            .into_iter()
-            .position(|(key, _val)| key == version);
+            .iter()
+            .position(|(key, _val)| *key == version);
 
         if start_index.is_none() {
             return vec![];
         }
 
-        let all_migrations: Vec<(&str, String)> = mapper.into_iter().collect();
+        let mut results = vec![];
+        let mut current_data = original_json;
 
-        // Slice for pick only the useful migration
-        return all_migrations[(start_index.unwrap() + 1)..].to_vec();
+        for (v, migration_fn) in mapper.into_iter().skip(start_index.unwrap() + 1) {
+            current_data = migration_fn(current_data);
+            results.push((v, current_data.clone()));
+        }
+
+        return results;
     }
 
     // Migrations
-    fn add_priority(mut json: Vec<Value>) -> String {
-        for t in json.iter_mut().flat_map(|p| p.get_mut("tasks")).flat_map(|t| t.as_array_mut()).flatten() {
-            t.as_object_mut().unwrap().insert("priority".to_string(), json!(0));
+    fn add_priority(mut data: Vec<Project>) -> Vec<Project> {
+        for p in data.iter_mut() {
+            for t in p.tasks.iter_mut() {
+                t.priority = 0;
+            }
         }
-        to_string(&json).unwrap()
+        data
     }
 
-    fn add_note(mut json: Vec<Value>) -> String {
-        for t in json.iter_mut().flat_map(|p| p.get_mut("tasks")).flat_map(|t| t.as_array_mut()).flatten() {
-            t.as_object_mut().unwrap().insert("note".to_string(), json!(""));
+    fn add_note(mut data: Vec<Project>) -> Vec<Project> {
+        for p in data.iter_mut() {
+            for t in p.tasks.iter_mut() {
+                t.note = "".to_string();
+            }
         }
-        to_string(&json).unwrap()
+        data
     }
 }
