@@ -117,6 +117,8 @@ impl View {
 
         if app.view_mode == ViewMode::ChangeStatusTask
             || app.view_mode == ViewMode::ChangePriorityTask
+            || app.view_mode == ViewMode::DeleteTask
+            || app.view_mode == ViewMode::DeleteProject
         {
             f.render_widget(items, area)
         } else {
