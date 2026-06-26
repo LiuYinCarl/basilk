@@ -57,6 +57,7 @@ pub struct App {
     selected_task_index: ListState,
     selected_status_task_index: ListState,
     selected_priority_task_index: ListState,
+    delete_confirm_index: ListState,
     view_mode: ViewMode,
     previous_view_mode: ViewMode,
     projects: Vec<Project>,
@@ -101,6 +102,7 @@ impl App {
             selected_task_index: ListState::default().with_selected(Some(0)),
             selected_status_task_index: ListState::default().with_selected(Some(0)),
             selected_priority_task_index: ListState::default().with_selected(Some(0)),
+            delete_confirm_index: ListState::default().with_selected(Some(0)),
             view_mode: ViewMode::default(),
             previous_view_mode: ViewMode::default(),
             projects: Json::read(),
@@ -124,13 +126,16 @@ impl App {
         let mut priority_items: Vec<ListItem> = vec![];
         Task::load_priority_items(&mut priority_items);
 
+        let mut delete_confirm_items: Vec<ListItem> = vec![];
+        Task::load_delete_confirm_items(&mut delete_confirm_items);
+
         if were_applied_migrations {
             self.view_mode = ViewMode::InfoMigration
         }
 
         loop {
             terminal.draw(|f| {
-                self.render(f, f.size(), &input, &items, &status_items, &priority_items)
+                self.render(f, f.size(), &input, &items, &status_items, &priority_items, &delete_confirm_items)
             })?;
 
             if let Event::Key(key) = event::read()? {
@@ -219,13 +224,26 @@ impl App {
                             }
                         },
                         ViewMode::DeleteProject => match key.code {
-                            Char('y') => {
-                                Project::delete(self, &mut items);
-                                self.selected_project_index.select_previous();
+                            Enter => {
+                                if self.delete_confirm_index.selected() == Some(0) {
+                                    Project::delete(self, &mut items);
+                                    self.selected_project_index.select_previous();
 
-                                App::change_view(self, ViewMode::ViewProjects);
+                                    self.delete_confirm_index.select(Some(0));
+                                    App::change_view(self, ViewMode::ViewProjects);
+                                } else {
+                                    self.delete_confirm_index.select(Some(0));
+                                    App::change_view(self, ViewMode::ViewProjects);
+                                }
                             }
-                            Char('n') => {
+                            Down | BackTab | Char('j') => {
+                                self.next(&delete_confirm_items);
+                            }
+                            Up | Tab | Char('k') => {
+                                self.previous(&delete_confirm_items);
+                            }
+                            Esc => {
+                                self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewProjects);
                             }
                             _ => {}
@@ -402,13 +420,26 @@ impl App {
                             }
                         },
                         ViewMode::DeleteTask => match key.code {
-                            Char('y') => {
-                                Task::delete(self, &mut items);
-                                self.selected_task_index.select_previous();
+                            Enter => {
+                                if self.delete_confirm_index.selected() == Some(0) {
+                                    Task::delete(self, &mut items);
+                                    self.selected_task_index.select_previous();
 
-                                App::change_view(self, ViewMode::ViewTasks);
+                                    self.delete_confirm_index.select(Some(0));
+                                    App::change_view(self, ViewMode::ViewTasks);
+                                } else {
+                                    self.delete_confirm_index.select(Some(0));
+                                    App::change_view(self, ViewMode::ViewTasks);
+                                }
                             }
-                            Char('n') => {
+                            Down | BackTab | Char('j') => {
+                                self.next(&delete_confirm_items);
+                            }
+                            Up | Tab | Char('k') => {
+                                self.previous(&delete_confirm_items);
+                            }
+                            Esc => {
+                                self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
                             _ => {}
@@ -471,6 +502,7 @@ impl App {
         items: &Vec<ListItem>,
         status_items: &Vec<ListItem>,
         priority_items: &Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
     ) {
         let layout = Layout::vertical([
             Constraint::Percentage(2),
@@ -516,7 +548,7 @@ impl App {
         }
 
         if self.view_mode == ViewMode::DeleteTask || self.view_mode == ViewMode::DeleteProject {
-            View::show_delete_item_modal(self, f, area)
+            View::show_delete_item_modal(self, delete_confirm_items, f, area)
         }
 
         if self.view_mode == ViewMode::ChangeStatusTask {
@@ -571,14 +603,14 @@ impl App {
             ViewMode::ViewProjects => return &mut self.selected_project_index,
             ViewMode::RenameProject => return &mut self.selected_project_index,
             ViewMode::AddProject => return &mut self.selected_project_index,
-            ViewMode::DeleteProject => return &mut self.selected_project_index,
+            ViewMode::DeleteProject => return &mut self.delete_confirm_index,
 
             ViewMode::ViewTasks => return &mut self.selected_task_index,
             ViewMode::RenameTask => return &mut self.selected_task_index,
             ViewMode::ChangeStatusTask => return &mut self.selected_status_task_index,
             ViewMode::ChangePriorityTask => return &mut self.selected_priority_task_index,
             ViewMode::AddTask => return &mut self.selected_task_index,
-            ViewMode::DeleteTask => return &mut self.selected_task_index,
+            ViewMode::DeleteTask => return &mut self.delete_confirm_index,
             ViewMode::ViewTaskDetails => return &mut self.selected_task_index,
             ViewMode::EditTaskNote => return &mut self.selected_task_index,
 

@@ -77,6 +77,18 @@ impl Task {
         }
     }
 
+    pub fn load_delete_confirm_items(items: &mut Vec<ListItem>) {
+        items.clear();
+        items.push(ListItem::from(Span::styled(
+            "Confirm",
+            Style::new().fg(Color::Red),
+        )));
+        items.push(ListItem::from(Span::styled(
+            "Cancel",
+            Style::new().fg(Color::Gray),
+        )));
+    }
+
     pub fn load_items(app: &mut App, items: &mut Vec<ListItem>) {
         let tasks = &mut app.projects[app.selected_project_index.selected().unwrap()].tasks;
 

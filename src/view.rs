@@ -36,33 +36,28 @@ impl View {
         Ui::create_input_modal("Note", f, area, input)
     }
 
-    pub fn show_delete_item_modal(app: &mut App, f: &mut Frame, area: Rect) {
+    pub fn show_delete_item_modal(
+        app: &mut App,
+        confirm_items: &Vec<ListItem>,
+        f: &mut Frame,
+        area: Rect,
+    ) {
         let title = match app.view_mode {
             ViewMode::DeleteTask => &Task::get_current(app).title,
             ViewMode::DeleteProject => &Project::get_current(app).title,
             _ => "",
         };
 
-        let area = Ui::create_rect_area(50, 6, area);
+        let area = Ui::create_rect_area(30, 5, area);
+
+        let list_widget = List::new(confirm_items.clone())
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+            .highlight_symbol("> ")
+            .highlight_spacing(HighlightSpacing::Always)
+            .block(Block::bordered().title(format!("Delete \"{}\"?", title)));
 
         f.render_widget(Clear, area);
-        f.render_widget(
-            Paragraph::new(Text::from(vec![
-                Line::raw("Are you sure to delete?"),
-                Line::raw(format!("\"{}\"", title)),
-                Line::raw(""),
-                Line::from(Span::styled(
-                    "y / n",
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
-                )),
-            ]))
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true })
-            .block(Block::bordered().title("Delete")),
-            area,
-        );
+        f.render_stateful_widget(list_widget, area, app.use_state())
     }
 
     pub fn show_select_task_status_modal(
