@@ -38,49 +38,14 @@ Windows
 ```
 选择 JSON 格式是为了方便导出。
 
+本项目是原始 [basilk](https://github.com/GabAlpha/basilk) 的一个 fork 版本。如需原始版本，请参考上游仓库。
+
 ## 安装
-### Cargo
 
-通过 [crates.io](https://crates.io/crates/basilk) 使用 [`cargo`](https://doc.rust-lang.org/cargo/) 安装
-
-```sh
-cargo install basilk
-```
-
-### AUR
-
-通过 [AUR](https://aur.archlinux.org/packages/basilk) 使用 [AUR 助手](https://wiki.archlinux.org/title/AUR_helpers) 安装
-
-```sh
-paru -S basilk
-```
-
-### Homebrew
-通过 [homebrew tap](https://docs.brew.sh/Taps) 使用 [`brew`](https://brew.sh/) 安装
-
-```sh
-brew tap GabAlpha/tap
-brew install basilk
-```
-
-### X-CMD
-通过 [x install](https://x-cmd.com/install/basilk) 使用 [x-cmd](https://x-cmd.com) 安装
-
-```sh
-x install basilk
-```
-
-### 从源码构建
-
-1. 克隆仓库
 ```sh
 git clone https://github.com/GabAlpha/basilk && cd basilk
+cargo install --path .
 ```
-2. 构建
-```sh
-cargo build --release
-```
-二进制文件位于 `target/release/basilk`
 
 ## 使用
 运行

@@ -38,49 +38,14 @@ Windows
 ```
 The choice to use the JSON format is to make easier to export
 
+This is a fork of the original [basilk](https://github.com/GabAlpha/basilk) project. For the original version, please refer to the upstream repository.
+
 ## Installation
-### Cargo
 
-from [crates.io](https://crates.io/crates/basilk) using [`cargo`](https://doc.rust-lang.org/cargo/)
-
-```sh
-cargo install basilk
-```
-
-### AUR
-
-from the [AUR](https://aur.archlinux.org/packages/basilk) with using an [AUR helper](https://wiki.archlinux.org/title/AUR_helpers).
-
-```sh
-paru -S basilk
-```
-
-### Homebrew
-from a [homebrew tap](https://docs.brew.sh/Taps) using [`brew`](https://brew.sh/)
-
-```sh
-brew tap GabAlpha/tap
-brew install basilk
-```
-
-### X-CMD
-from a [x install](https://x-cmd.com/install/basilk) using [x-cmd](https://x-cmd.com)
-
-```sh
-x install basilk
-```
-
-### Build from source
-
-1. Clone the repository
 ```sh
 git clone https://github.com/GabAlpha/basilk && cd basilk
+cargo install --path .
 ```
-2. Build
-```sh
-cargo build --release
-```
-Binary will be located at `target/release/basilk`
 
 ## Usage
 Run
