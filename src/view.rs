@@ -43,7 +43,7 @@ impl View {
             _ => "",
         };
 
-        let area = Ui::create_rect_area(50, 5, area);
+        let area = Ui::create_rect_area(50, 6, area);
 
         f.render_widget(Clear, area);
         f.render_widget(
