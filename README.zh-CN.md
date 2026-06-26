@@ -43,7 +43,7 @@ Windows
 ## 安装
 
 ```sh
-git clone https://github.com/GabAlpha/basilk && cd basilk
+git clone https://github.com/LiuYinCarl/basilk && cd basilk
 cargo install --path .
 ```
 

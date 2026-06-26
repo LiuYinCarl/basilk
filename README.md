@@ -43,7 +43,7 @@ This is a fork of the original [basilk](https://github.com/GabAlpha/basilk) proj
 ## Installation
 
 ```sh
-git clone https://github.com/GabAlpha/basilk && cd basilk
+git clone https://github.com/LiuYinCarl/basilk && cd basilk
 cargo install --path .
 ```
 
