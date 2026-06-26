@@ -225,33 +225,58 @@ impl View {
         Ui::create_modal(f, 60, 18, area, widget)
     }
 
-    pub fn show_footer_helper(app: &mut App, f: &mut Frame, area: Rect) {
-        let help_string = match app.view_mode {
-            ViewMode::ViewProjects => {
-                "<Up/Down k/j> next/prev - <Enter/Right/l> go to tasks - <n> new - <r> rename - <d> delete - <q> quit"
-            }
-            ViewMode::RenameProject => "<Enter> confirm - <Esc> cancel",
-            ViewMode::AddProject => "<Enter> confirm - <Esc> cancel",
-            ViewMode::DeleteProject => "<y> confirm - <n> cancel",
-
-            ViewMode::ViewTasks => {
-                "<Up/Down k/j> next/prev - <Esc/Left/h> go to projects - <Enter> change status - <p> change priority - <n> new - <r> rename - <v> details - <d> delete - <t> toggle done - <q> quit"
-            }
-            ViewMode::RenameTask => "<Enter> confirm - <Esc> cancel",
-            ViewMode::ChangeStatusTask => "<Up/Down k/j> next/prev - <Enter> confirm - <Esc> cancel",
-            ViewMode::ChangePriorityTask => "<Up/Down k/j> next/prev - <Enter> confirm - <Esc> cancel",
-            ViewMode::AddTask => "<Enter> confirm - <Esc> cancel",
-            ViewMode::DeleteTask => "<y> confirm - <n> cancel",
-            ViewMode::ViewTaskDetails => "<e> edit note - <Any other key> close",
-            ViewMode::EditTaskNote => "<Enter> confirm - <Esc> cancel",
-            ViewMode::InfoMigration => ""
+    pub fn show_help_modal(app: &mut App, f: &mut Frame, area: Rect) {
+        let bindings: &[(&str, &str)] = match app.previous_view_mode {
+            ViewMode::ViewProjects => &[
+                ("↑ ↓  k j", "next/prev"),
+                ("Enter  →  l", "go to tasks"),
+                ("n", "new"),
+                ("r", "rename"),
+                ("d", "delete"),
+                ("h", "help"),
+                ("q", "quit"),
+            ],
+            ViewMode::ViewTasks => &[
+                ("↑ ↓  k j", "next/prev"),
+                ("Esc  ←", "back"),
+                ("Enter", "change status"),
+                ("p", "change priority"),
+                ("n", "new"),
+                ("r", "rename"),
+                ("v", "details"),
+                ("e", "note"),
+                ("d", "delete"),
+                ("t", "toggle done"),
+                ("h", "help"),
+                ("q", "quit"),
+            ],
+            _ => &[],
         };
 
-        f.render_widget(
-            Paragraph::new(help_string)
-                .wrap(Wrap { trim: true })
-                .alignment(Alignment::Center),
-            area,
-        );
+        let mut lines: Vec<Line> = bindings
+            .iter()
+            .map(|(keys, desc)| {
+                Line::from(vec![
+                    Span::styled(
+                        format!("{:<16}", keys),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(*desc),
+                ])
+            })
+            .collect();
+
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "Press any key to close",
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+        )));
+
+        let widget = Paragraph::new(Text::from(lines))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true })
+            .block(Block::bordered().title(" Help "));
+
+        Ui::create_modal(f, 42, 16, area, widget)
     }
 }

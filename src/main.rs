@@ -17,7 +17,6 @@ use ratatui::{
 use tui_input::{backend::crossterm::EventHandler, Input};
 
 mod cli;
-mod config;
 mod json;
 mod migration;
 mod project;
@@ -26,7 +25,6 @@ mod ui;
 mod util;
 mod view;
 
-use config::{Config, ConfigToml};
 use json::Json;
 use project::Project;
 use task::{Task, TASK_PRIORITIES, TASK_STATUSES};
@@ -48,6 +46,7 @@ pub enum ViewMode {
     DeleteTask,
     ViewTaskDetails,
     EditTaskNote,
+    ViewHelp,
 
     InfoMigration,
 }
@@ -59,8 +58,8 @@ pub struct App {
     selected_status_task_index: ListState,
     selected_priority_task_index: ListState,
     view_mode: ViewMode,
+    previous_view_mode: ViewMode,
     projects: Vec<Project>,
-    config: ConfigToml,
     hide_done_tasks: bool,
 }
 
@@ -103,8 +102,8 @@ impl App {
             selected_status_task_index: ListState::default().with_selected(Some(0)),
             selected_priority_task_index: ListState::default().with_selected(Some(0)),
             view_mode: ViewMode::default(),
+            previous_view_mode: ViewMode::default(),
             projects: Json::read(),
-            config: Config::read(),
             hide_done_tasks: true,
         }
     }
@@ -140,6 +139,10 @@ impl App {
                     use KeyCode::*;
                     match self.view_mode {
                         ViewMode::ViewProjects => match key.code {
+                            Char('h') => {
+                                self.previous_view_mode = ViewMode::ViewProjects;
+                                App::change_view(self, ViewMode::ViewHelp);
+                            }
                             Enter | Right | Char('l') => {
                                 if items.is_empty() {
                                     continue;
@@ -229,7 +232,11 @@ impl App {
                         },
 
                         ViewMode::ViewTasks => match key.code {
-                            Esc | Left | Char('h') => {
+                            Char('h') => {
+                                self.previous_view_mode = ViewMode::ViewTasks;
+                                App::change_view(self, ViewMode::ViewHelp);
+                            }
+                            Esc | Left => {
                                 Project::load_items(self, &mut items);
 
                                 App::change_view(self, ViewMode::ViewProjects);
@@ -435,6 +442,16 @@ impl App {
                             }
                         },
 
+                        ViewMode::ViewHelp => match key.code {
+                            _ => {
+                                let prev = std::mem::replace(
+                                    &mut self.previous_view_mode,
+                                    ViewMode::ViewProjects,
+                                );
+                                App::change_view(self, prev);
+                            }
+                        },
+
                         ViewMode::InfoMigration => match key.code {
                             _ => {
                                 App::change_view(self, ViewMode::ViewProjects);
@@ -455,29 +472,27 @@ impl App {
         status_items: &Vec<ListItem>,
         priority_items: &Vec<ListItem>,
     ) {
-        let layout = Layout::vertical(if self.config.ui.show_help {
-            [
-                Constraint::Percentage(2),
-                Constraint::Percentage(93),
-                // Space for the footer helper
-                Constraint::Percentage(5),
-            ]
-        } else {
-            [
-                Constraint::Percentage(2),
-                // Expand the main area
-                Constraint::Percentage(98),
-                // Remove the footer help area
-                Constraint::Percentage(0),
-            ]
-        });
+        let layout = Layout::vertical([
+            Constraint::Percentage(2),
+            Constraint::Percentage(96),
+            Constraint::Percentage(2),
+        ]);
 
-        let [header_area, main_area, footer_area] = layout.areas(area);
+        let [header_area, main_area, hint_area] = layout.areas(area);
 
         // Header
         f.render_widget(
             Paragraph::new(format!("::{}::", env!("CARGO_PKG_NAME"))).centered(),
             header_area,
+        );
+
+        // Hint
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                " h  help",
+                Style::default().fg(Color::Green),
+            ))),
+            hint_area,
         );
 
         // Main view
@@ -512,12 +527,12 @@ impl App {
             View::show_select_task_priority_modal(self, priority_items, f, area)
         }
 
-        if self.view_mode == ViewMode::ViewTaskDetails {
-            View::show_task_details_modal(self, f, area)
+        if self.view_mode == ViewMode::ViewHelp {
+            View::show_help_modal(self, f, area)
         }
 
-        if self.config.ui.show_help {
-            View::show_footer_helper(self, f, footer_area)
+        if self.view_mode == ViewMode::ViewTaskDetails {
+            View::show_task_details_modal(self, f, area)
         }
     }
 
@@ -567,6 +582,7 @@ impl App {
             ViewMode::ViewTaskDetails => return &mut self.selected_task_index,
             ViewMode::EditTaskNote => return &mut self.selected_task_index,
 
+            ViewMode::ViewHelp => return &mut self.selected_project_index,
             ViewMode::InfoMigration => return &mut self.selected_project_index,
         };
     }

@@ -105,15 +105,19 @@ impl Task {
         tasks.sort_by_key(|t| TASK_PRIORITIES.into_iter().position(|o| o == t.priority));
 
         let new_index = tasks
-            .into_iter()
+            .iter()
             .position(|t| t.title == last_task_title_selected)
             .unwrap_or(0);
 
         items.clear();
 
-        for task in tasks.iter() {
+        let mut visible_selected = 0;
+        for (full_idx, task) in tasks.iter().enumerate() {
             if app.hide_done_tasks && task.status == TASK_STATUS_DONE {
                 continue;
+            }
+            if full_idx == new_index {
+                visible_selected = items.len();
             }
             let modifier = if task.status == TASK_STATUS_DONE {
                 Modifier::CROSSED_OUT
@@ -144,7 +148,7 @@ impl Task {
             items.push(ListItem::from(line))
         }
 
-        app.selected_task_index.select(Some(new_index))
+        app.selected_task_index.select(Some(visible_selected))
     }
 
     pub fn reload(app: &mut App, items: &mut Vec<ListItem>) {

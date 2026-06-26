@@ -89,6 +89,8 @@ basilk
 
 ## Keybindings
 
+Press `h` to view the keybinding list in-app.
+
 ### Global
 | Key | Action |
 |---|---|
@@ -97,17 +99,18 @@ basilk
 ### Project List View
 | Key | Action |
 |---|---|
-| `↑` `↓` / `k` `j` / `Tab` `Shift+Tab` | Navigate projects |
-| `Enter` / `→` / `l` | Enter project (view tasks) |
+| `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate projects |
+| `Enter`  `→`  `l` | Enter project (view tasks) |
 | `n` | New project |
 | `r` | Rename selected project |
 | `d` | Delete selected project |
+| `h` | Help |
 
 ### Task List View
 | Key | Action |
 |---|---|
-| `↑` `↓` / `k` `j` / `Tab` `Shift+Tab` | Navigate tasks |
-| `Esc` / `←` / `h` | Back to project list |
+| `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate tasks |
+| `Esc`  `←` | Back to project list |
 | `Enter` | Change task status |
 | `p` | Change task priority |
 | `n` | New task |
@@ -116,12 +119,12 @@ basilk
 | `e` | Edit task note |
 | `d` | Delete selected task |
 | `t` | Toggle show/hide completed tasks |
-| `q` | Quit |
+| `h` | Help |
 
 ### Change Status / Priority Modals
 | Key | Action |
 |---|---|
-| `↑` `↓` / `k` `j` / `Tab` `Shift+Tab` | Navigate options |
+| `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate options |
 | `Enter` | Confirm selection |
 | `Esc` | Cancel |
 
@@ -148,14 +151,6 @@ Tasks are displayed as `[Status] Title` with optional `[Priority]` prefix.
 - Priorities: `!` (highest), `!!` (high), `!!!` (low)
 
 Completed tasks are **hidden by default**. Press `t` in the task list view to toggle their visibility.
-
-## Configuration
-Configuration is stored in `config.toml` in the same directory as the data file.
-
-```toml
-[ui]
-show_help = true   # Show/hide the keybinding help bar at the bottom
-```
 
 ## Contributing
 > [!NOTE]  
