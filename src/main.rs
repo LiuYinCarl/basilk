@@ -61,6 +61,7 @@ pub struct App {
     view_mode: ViewMode,
     projects: Vec<Project>,
     config: ConfigToml,
+    hide_done_tasks: bool,
 }
 
 fn init_terminal() -> Result<Terminal<impl Backend>, Box<dyn Error>> {
@@ -104,6 +105,7 @@ impl App {
             view_mode: ViewMode::default(),
             projects: Json::read(),
             config: Config::read(),
+            hide_done_tasks: true,
         }
     }
 
@@ -306,6 +308,10 @@ impl App {
                             }
                             Up | BackTab | Char('k') => {
                                 self.previous(&items);
+                            }
+                            Char('t') => {
+                                self.hide_done_tasks = !self.hide_done_tasks;
+                                Task::load_items(self, &mut items);
                             }
                             Char('q') => {
                                 return Ok(());

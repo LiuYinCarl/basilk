@@ -235,7 +235,7 @@ impl View {
             ViewMode::DeleteProject => "<y> confirm - <n> cancel",
 
             ViewMode::ViewTasks => {
-                "<Up/Down k/j> next/prev - <Esc/Left/h> go to projects - <Enter> change status - <p> change priority - <n> new - <r> rename - <v> details - <d> delete - <q> quit"
+                "<Up/Down k/j> next/prev - <Esc/Left/h> go to projects - <Enter> change status - <p> change priority - <n> new - <r> rename - <v> details - <d> delete - <t> toggle done - <q> quit"
             }
             ViewMode::RenameTask => "<Enter> confirm - <Esc> cancel",
             ViewMode::ChangeStatusTask => "<Up/Down k/j> next/prev - <Enter> confirm - <Esc> cancel",

@@ -112,6 +112,9 @@ impl Task {
         items.clear();
 
         for task in tasks.iter() {
+            if app.hide_done_tasks && task.status == TASK_STATUS_DONE {
+                continue;
+            }
             let modifier = if task.status == TASK_STATUS_DONE {
                 Modifier::CROSSED_OUT
             } else {
