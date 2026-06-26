@@ -10,10 +10,13 @@ pub struct Ui {}
 
 impl Ui {
     pub fn create_rect_area(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+        let content_height = percent_y.min(r.height.saturating_sub(2));
+        let vertical_margin = (r.height.saturating_sub(content_height)) / 2;
+
         let popup_layout = Layout::vertical([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Min(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Length(vertical_margin),
+            Constraint::Length(content_height),
+            Constraint::Min(vertical_margin),
         ])
         .split(r);
 
