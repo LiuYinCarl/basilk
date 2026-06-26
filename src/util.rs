@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local};
 
-use crate::task::TASK_PRIORITIES;
+use crate::task::{TASK_PRIORITIES, TASK_PRIORITY_NONE};
 
 pub struct Util;
 
@@ -15,7 +15,7 @@ impl Util {
         // priority: 1 => !!!
         // priority: 2 => !!
         // priority: 3 => !
-        let priority_value = if value == 0 {
+        let priority_value = if value == TASK_PRIORITY_NONE {
             0
         } else {
             TASK_PRIORITIES

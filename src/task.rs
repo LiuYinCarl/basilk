@@ -25,14 +25,16 @@ pub const TASK_STATUS_DONE: &str = "Done";
 pub const TASK_STATUS_ON_GOING: &str = "OnGoing";
 pub const TASK_STATUS_UP_NEXT: &str = "UpNext";
 
+pub const TASK_PRIORITY_NONE: u8 = 0;
+
 pub const TASK_STATUSES: [&'static str; 3] =
     [TASK_STATUS_UP_NEXT, TASK_STATUS_ON_GOING, TASK_STATUS_DONE];
 
 const TASK_STATUSES_SORT_ORDER: [&'static str; 3] =
     [TASK_STATUS_ON_GOING, TASK_STATUS_UP_NEXT, TASK_STATUS_DONE];
 
-// Ascending order: 1 highest priority; 2 medium; 3 lowest
-pub const TASK_PRIORITIES: [u8; 4] = [1, 2, 3, 0];
+// Ascending order: 1 highest priority; 2 medium; 3 lowest; TASK_PRIORITY_NONE = no priority
+pub const TASK_PRIORITIES: [u8; 4] = [1, 2, 3, TASK_PRIORITY_NONE];
 
 impl Task {
     pub fn get_status_color(status: &String) -> ratatui::prelude::Color {
@@ -86,7 +88,7 @@ impl Task {
             .unwrap_or(&Task {
                 title: "".to_string(),
                 status: "".to_string(),
-                priority: 0,
+                priority: TASK_PRIORITY_NONE,
                 created_at: None,
                 completed_at: None,
                 note: "".to_string(),
@@ -135,7 +137,7 @@ impl Task {
                 Span::styled(task.title.clone(), Style::default().add_modifier(modifier)),
             ];
 
-            if task.priority != 0 {
+            if task.priority != TASK_PRIORITY_NONE {
                 let priority_repr = vec![Span::styled(
                     format!("[{}] ", Util::get_priority_indicator(task.priority)),
                     Style::new().fg(Color::Red),
@@ -166,7 +168,7 @@ impl Task {
             .push(Task {
                 title: value.to_string(),
                 status: TASK_STATUS_UP_NEXT.to_string(),
-                priority: 0,
+                priority: TASK_PRIORITY_NONE,
                 created_at: Some(Self::current_timestamp()),
                 completed_at: None,
                 note: "".to_string(),
@@ -202,7 +204,7 @@ impl Task {
         task.status = status.clone();
 
         if status == TASK_STATUS_DONE {
-            task.priority = 0;
+            task.priority = TASK_PRIORITY_NONE;
             if task.completed_at.is_none() {
                 task.completed_at = Some(Self::current_timestamp());
             }

@@ -7,7 +7,7 @@ use ratatui::{
 };
 use tui_input::Input;
 
-use crate::{project::Project, task::Task, ui::Ui, util::Util, App, ViewMode};
+use crate::{project::Project, task::{Task, TASK_PRIORITY_NONE}, ui::Ui, util::Util, App, ViewMode};
 
 pub struct View {}
 
@@ -65,7 +65,7 @@ impl View {
         f: &mut Frame,
         area: Rect,
     ) {
-        let area = Ui::create_rect_area(10, 5, area);
+        let area = Ui::create_rect_area(20, 5, area);
 
         let task_status_list_widget = List::new(status_items.clone())
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -83,7 +83,7 @@ impl View {
         f: &mut Frame,
         area: Rect,
     ) {
-        let area = Ui::create_rect_area(10, 6, area);
+        let area = Ui::create_rect_area(20, 6, area);
 
         let task_status_list_widget = List::new(priority_items.clone())
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -128,7 +128,7 @@ impl View {
     pub fn show_task_details_modal(app: &mut App, f: &mut Frame, area: Rect) {
         let task = Task::get_current(app);
 
-        let priority_text = if task.priority == 0 {
+        let priority_text = if task.priority == TASK_PRIORITY_NONE {
             "None".to_string()
         } else {
             format!("{} ({})", task.priority, Util::get_priority_indicator(task.priority))

@@ -1,4 +1,5 @@
 use crate::project::Project;
+use crate::task::TASK_PRIORITY_NONE;
 
 //                              sha of 0.1.0     0.2.0    0.2.2
 pub static JSON_VERSIONS: [&str; 3] = ["6ad96", "911fc", "a4e1b"];
@@ -38,7 +39,7 @@ impl Migration {
     fn add_priority(mut data: Vec<Project>) -> Vec<Project> {
         for p in data.iter_mut() {
             for t in p.tasks.iter_mut() {
-                t.priority = 0;
+                t.priority = TASK_PRIORITY_NONE;
             }
         }
         data
