@@ -43,13 +43,26 @@ impl View {
             _ => "",
         };
 
-        Ui::create_question_modal(
-            "Are you sure to delete?",
-            format!("\"{}\"", title).as_str(),
-            "Delete",
-            f,
+        let area = Ui::create_rect_area(50, 5, area);
+
+        f.render_widget(Clear, area);
+        f.render_widget(
+            Paragraph::new(Text::from(vec![
+                Line::raw("Are you sure to delete?"),
+                Line::raw(format!("\"{}\"", title)),
+                Line::raw(""),
+                Line::from(Span::styled(
+                    "y / n",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                )),
+            ]))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .block(Block::bordered().title("Delete")),
             area,
-        )
+        );
     }
 
     pub fn show_select_task_status_modal(

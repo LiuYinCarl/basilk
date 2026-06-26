@@ -1,7 +1,6 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Rect},
-    text::{Line, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
+    layout::{Constraint, Layout, Rect},
+    widgets::{Block, Borders, Clear, Paragraph, Widget},
     Frame,
 };
 use tui_input::Input;
@@ -61,25 +60,4 @@ impl Ui {
         )
     }
 
-    pub fn create_question_modal(
-        text_first_line: &str,
-        text_second_line: &str,
-        title: &str,
-        f: &mut Frame,
-        area: Rect,
-    ) {
-        let area = Ui::create_rect_area(50, 4, area);
-
-        f.render_widget(Clear, area); //this clears out the background
-        f.render_widget(
-            Paragraph::new(Text::from(vec![
-                Line::raw(text_first_line),
-                Line::raw(text_second_line),
-            ]))
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true })
-            .block(Block::bordered().title(title)),
-            area,
-        );
-    }
 }
