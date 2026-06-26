@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
     Frame,
 };
 use tui_input::Input;
@@ -68,7 +68,7 @@ impl Ui {
         f: &mut Frame,
         area: Rect,
     ) {
-        let area = Ui::create_rect_area(20, 4, area);
+        let area = Ui::create_rect_area(50, 4, area);
 
         f.render_widget(Clear, area); //this clears out the background
         f.render_widget(
@@ -77,6 +77,7 @@ impl Ui {
                 Line::raw(text_second_line),
             ]))
             .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
             .block(Block::bordered().title(title)),
             area,
         );
