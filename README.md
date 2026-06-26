@@ -1,6 +1,8 @@
 <p align="center"><img src="./assets/basil-k.jpg" width=240></img></p>
 <p align="center"><i>illustration generated using <a href="https://perchance.org/ai-pixel-art-generator">perchance.org</a></i></p>
 
+<p align="center">English | <a href="./README.zh-CN.md">中文</a></p>
+
 <h1 align="center">basilk</h1>
 <p align="center">A Terminal User Interface (TUI) to manage your tasks with minimal kanban logic</p>
 
