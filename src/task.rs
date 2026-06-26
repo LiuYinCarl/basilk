@@ -77,18 +77,6 @@ impl Task {
         }
     }
 
-    pub fn load_delete_confirm_items(items: &mut Vec<ListItem>) {
-        items.clear();
-        items.push(ListItem::from(Span::styled(
-            "Confirm",
-            Style::new().fg(Color::Red),
-        )));
-        items.push(ListItem::from(Span::styled(
-            "Cancel",
-            Style::new().fg(Color::Gray),
-        )));
-    }
-
     pub fn load_items(app: &mut App, items: &mut Vec<ListItem>) {
         let tasks = &mut app.projects[app.selected_project_index.selected().unwrap()].tasks;
 
@@ -163,15 +151,6 @@ impl Task {
         app.selected_task_index.select(Some(visible_selected))
     }
 
-    pub fn reload(app: &mut App, items: &mut Vec<ListItem>) {
-        app.projects = Json::read();
-        Task::load_items(app, items)
-    }
-
-    pub fn _get_all(app: &App) -> &Vec<Task> {
-        return &app.projects[app.selected_project_index.selected().unwrap()].tasks;
-    }
-
     pub fn get_current(app: &mut App) -> &Task {
         return &app.projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()];
@@ -182,52 +161,43 @@ impl Task {
             return;
         }
 
-        let new_task = Task {
-            title: value.to_string(),
-            status: TASK_STATUS_UP_NEXT.to_string(),
-            priority: 0,
-            created_at: Some(Self::current_timestamp()),
-            completed_at: None,
-            note: "".to_string(),
-        };
-
-        let mut internal_projects = app.projects.clone();
-        internal_projects[app.selected_project_index.selected().unwrap()]
+        app.projects[app.selected_project_index.selected().unwrap()]
             .tasks
-            .push(new_task);
+            .push(Task {
+                title: value.to_string(),
+                status: TASK_STATUS_UP_NEXT.to_string(),
+                priority: 0,
+                created_at: Some(Self::current_timestamp()),
+                completed_at: None,
+                note: "".to_string(),
+            });
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 
     pub fn rename(app: &mut App, items: &mut Vec<ListItem>, value: &str) {
-        let mut internal_projects = app.projects.clone();
-
-        internal_projects[app.selected_project_index.selected().unwrap()].tasks
+        app.projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()]
         .title = value.to_string();
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 
     pub fn update_note(app: &mut App, items: &mut Vec<ListItem>, value: &str) {
-        let mut internal_projects = app.projects.clone();
-
-        internal_projects[app.selected_project_index.selected().unwrap()].tasks
+        app.projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()]
         .note = value.to_string();
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 
     pub fn change_status(app: &mut App, items: &mut Vec<ListItem>, value: &str) {
-        let mut internal_projects = app.projects.clone();
         let status = value.to_string();
-
-        let task = &mut internal_projects[app.selected_project_index.selected().unwrap()].tasks
-            [app.selected_task_index.selected().unwrap()];
+        let projects = &mut app.projects[app.selected_project_index.selected().unwrap()].tasks;
+        let task = &mut projects[app.selected_task_index.selected().unwrap()];
 
         task.status = status.clone();
 
@@ -237,33 +207,28 @@ impl Task {
                 task.completed_at = Some(Self::current_timestamp());
             }
         } else {
-            // If changing from Done to another status, clear completion time
             task.completed_at = None;
         }
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 
     pub fn change_priority(app: &mut App, items: &mut Vec<ListItem>, value: u8) {
-        let mut internal_projects = app.projects.clone();
-
-        internal_projects[app.selected_project_index.selected().unwrap()].tasks
+        app.projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()]
         .priority = value;
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 
     pub fn delete(app: &mut App, items: &mut Vec<ListItem>) {
-        let mut internal_projects = app.projects.clone();
-
-        internal_projects[app.selected_project_index.selected().unwrap()]
+        app.projects[app.selected_project_index.selected().unwrap()]
             .tasks
             .remove(app.selected_task_index.selected().unwrap());
 
-        Json::write(internal_projects);
-        Task::reload(app, items)
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
     }
 }

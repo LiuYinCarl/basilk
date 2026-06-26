@@ -1,6 +1,8 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    style::{Color, Style},
+    text::Span,
+    widgets::{Block, Borders, Clear, ListItem, Paragraph, Widget},
     Frame,
 };
 use tui_input::Input;
@@ -8,6 +10,18 @@ use tui_input::Input;
 pub struct Ui {}
 
 impl Ui {
+    pub fn load_delete_confirm_items(items: &mut Vec<ListItem>) {
+        items.clear();
+        items.push(ListItem::from(Span::styled(
+            "Confirm",
+            Style::new().fg(Color::Red),
+        )));
+        items.push(ListItem::from(Span::styled(
+            "Cancel",
+            Style::new().fg(Color::Gray),
+        )));
+    }
+
     pub fn create_rect_area(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         let content_height = percent_y.min(r.height.saturating_sub(2));
         let vertical_margin = (r.height.saturating_sub(content_height)) / 2;

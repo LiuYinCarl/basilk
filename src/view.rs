@@ -6,7 +6,6 @@ use ratatui::{
     Frame,
 };
 use tui_input::Input;
-use chrono::{DateTime, Local};
 
 use crate::{project::Project, task::Task, ui::Ui, util::Util, App, ViewMode};
 
@@ -129,43 +128,6 @@ impl View {
     pub fn show_task_details_modal(app: &mut App, f: &mut Frame, area: Rect) {
         let task = Task::get_current(app);
 
-        let format_timestamp = |timestamp: Option<u64>| -> String {
-            timestamp
-                .and_then(|ts| DateTime::from_timestamp(ts as i64, 0))
-                .map(|dt| {
-                    let local_dt: DateTime<Local> = dt.into();
-                    local_dt.format("%Y-%m-%d %H:%M:%S %z").to_string()
-                })
-                .unwrap_or_else(|| "N/A".to_string())
-        };
-
-        let format_duration = |start: Option<u64>, end: Option<u64>| -> String {
-            match (start, end) {
-                (Some(s), Some(e)) => {
-                    if e > s {
-                        let duration_secs = e - s;
-                        let days = duration_secs / 86400;
-                        let hours = (duration_secs % 86400) / 3600;
-                        let minutes = (duration_secs % 3600) / 60;
-                        let seconds = duration_secs % 60;
-
-                        if days > 0 {
-                            format!("{}d {}h {}m {}s", days, hours, minutes, seconds)
-                        } else if hours > 0 {
-                            format!("{}h {}m {}s", hours, minutes, seconds)
-                        } else if minutes > 0 {
-                            format!("{}m {}s", minutes, seconds)
-                        } else {
-                            format!("{}s", seconds)
-                        }
-                    } else {
-                        "Invalid time range".to_string()
-                    }
-                }
-                _ => "Task not completed".to_string(),
-            }
-        };
-
         let priority_text = if task.priority == 0 {
             "None".to_string()
         } else {
@@ -199,7 +161,7 @@ impl View {
         if task.created_at.is_some() {
             lines.push(Line::from(vec![
                 Span::styled("Created: ", Style::default().fg(Color::Cyan)),
-                Span::raw(format_timestamp(task.created_at)),
+                Span::raw(Util::format_timestamp(task.created_at)),
             ]));
             lines.push(Line::raw(""));
         }
@@ -208,7 +170,7 @@ impl View {
         if task.completed_at.is_some() {
             lines.push(Line::from(vec![
                 Span::styled("Completed: ", Style::default().fg(Color::Cyan)),
-                Span::raw(format_timestamp(task.completed_at)),
+                Span::raw(Util::format_timestamp(task.completed_at)),
             ]));
             lines.push(Line::raw(""));
         }
@@ -217,7 +179,7 @@ impl View {
         if task.created_at.is_some() {
             lines.push(Line::from(vec![
                 Span::styled("Time Consumed: ", Style::default().fg(Color::Cyan)),
-                Span::raw(format_duration(task.created_at, task.completed_at)),
+                Span::raw(Util::format_duration(task.created_at, task.completed_at)),
             ]));
             lines.push(Line::raw(""));
         }

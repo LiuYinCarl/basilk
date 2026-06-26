@@ -28,6 +28,7 @@ mod view;
 use json::Json;
 use project::Project;
 use task::{Task, TASK_PRIORITIES, TASK_STATUSES};
+use ui::Ui;
 use view::View;
 
 #[derive(Default, PartialEq, Debug)]
@@ -127,7 +128,7 @@ impl App {
         Task::load_priority_items(&mut priority_items);
 
         let mut delete_confirm_items: Vec<ListItem> = vec![];
-        Task::load_delete_confirm_items(&mut delete_confirm_items);
+        Ui::load_delete_confirm_items(&mut delete_confirm_items);
 
         if were_applied_migrations {
             self.view_mode = ViewMode::InfoMigration
@@ -223,30 +224,18 @@ impl App {
                                 input.handle_event(&Event::Key(key));
                             }
                         },
-                        ViewMode::DeleteProject => match key.code {
-                            Enter => {
+                        ViewMode::DeleteProject => {
+                            if self.handle_modal_nav(key.code, &delete_confirm_items, ViewMode::ViewProjects) {
+                                continue;
+                            }
+                            if key.code == Enter {
                                 if self.delete_confirm_index.selected() == Some(0) {
                                     Project::delete(self, &mut items);
                                     self.selected_project_index.select_previous();
-
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                } else {
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewProjects);
                                 }
-                            }
-                            Down | BackTab | Char('j') => {
-                                self.next(&delete_confirm_items);
-                            }
-                            Up | Tab | Char('k') => {
-                                self.previous(&delete_confirm_items);
-                            }
-                            Esc => {
                                 self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewProjects);
                             }
-                            _ => {}
                         },
 
                         ViewMode::ViewTasks => match key.code {
@@ -359,8 +348,11 @@ impl App {
                                 input.handle_event(&Event::Key(key));
                             }
                         },
-                        ViewMode::ChangeStatusTask => match key.code {
-                            Enter => {
+                        ViewMode::ChangeStatusTask => {
+                            if self.handle_modal_nav(key.code, &status_items, ViewMode::ViewTasks) {
+                                continue;
+                            }
+                            if key.code == Enter {
                                 Task::change_status(
                                     self,
                                     &mut items,
@@ -371,20 +363,12 @@ impl App {
                                 self.selected_status_task_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-
-                            Down | BackTab | Char('j') => {
-                                self.next(&status_items);
-                            }
-                            Up | Tab | Char('k') => {
-                                self.previous(&status_items);
-                            }
-                            Esc => {
-                                App::change_view(self, ViewMode::ViewTasks);
-                            }
-                            _ => {}
                         },
-                        ViewMode::ChangePriorityTask => match key.code {
-                            Enter => {
+                        ViewMode::ChangePriorityTask => {
+                            if self.handle_modal_nav(key.code, &priority_items, ViewMode::ViewTasks) {
+                                continue;
+                            }
+                            if key.code == Enter {
                                 Task::change_priority(
                                     self,
                                     &mut items,
@@ -395,16 +379,6 @@ impl App {
                                 self.selected_priority_task_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-                            Down | BackTab | Char('j') => {
-                                self.next(&priority_items);
-                            }
-                            Up | Tab | Char('k') => {
-                                self.previous(&priority_items);
-                            }
-                            Esc => {
-                                App::change_view(self, ViewMode::ViewTasks);
-                            }
-                            _ => {}
                         },
                         ViewMode::AddTask => match key.code {
                             Enter => {
@@ -419,30 +393,18 @@ impl App {
                                 input.handle_event(&Event::Key(key));
                             }
                         },
-                        ViewMode::DeleteTask => match key.code {
-                            Enter => {
+                        ViewMode::DeleteTask => {
+                            if self.handle_modal_nav(key.code, &delete_confirm_items, ViewMode::ViewTasks) {
+                                continue;
+                            }
+                            if key.code == Enter {
                                 if self.delete_confirm_index.selected() == Some(0) {
                                     Task::delete(self, &mut items);
                                     self.selected_task_index.select_previous();
-
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                } else {
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewTasks);
                                 }
-                            }
-                            Down | BackTab | Char('j') => {
-                                self.next(&delete_confirm_items);
-                            }
-                            Up | Tab | Char('k') => {
-                                self.previous(&delete_confirm_items);
-                            }
-                            Esc => {
                                 self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-                            _ => {}
                         },
                         ViewMode::ViewTaskDetails => match key.code {
                             Char('e') => {
@@ -621,5 +583,24 @@ impl App {
 
     fn change_view(&mut self, mode: ViewMode) {
         self.view_mode = mode
+    }
+
+    fn handle_modal_nav(&mut self, key: KeyCode, items: &Vec<ListItem>, return_mode: ViewMode) -> bool {
+        match key {
+            KeyCode::Esc => {
+                self.use_state().select(Some(0));
+                App::change_view(self, return_mode);
+                true
+            }
+            KeyCode::Down | KeyCode::BackTab | KeyCode::Char('j') => {
+                self.next(items);
+                true
+            }
+            KeyCode::Up | KeyCode::Tab | KeyCode::Char('k') => {
+                self.previous(items);
+                true
+            }
+            _ => false,
+        }
     }
 }

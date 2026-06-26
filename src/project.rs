@@ -22,7 +22,7 @@ impl Project {
         match percentage {
             p if p == 0 => return Color::DarkGray,
             p if p >= 25 && p <= 50 => return Color::LightMagenta,
-            p if p >= 50 && p < 100 => return Color::LightYellow,
+            p if p > 50 && p < 100 => return Color::LightYellow,
             p if p == 100 => return Color::LightGreen,
             _ => return Color::White,
         }
@@ -57,11 +57,6 @@ impl Project {
         }
     }
 
-    pub fn reload(app: &mut App, items: &mut Vec<ListItem>) {
-        app.projects = Json::read();
-        Project::load_items(app, items)
-    }
-
     pub fn get_current(app: &mut App) -> &Project {
         return &app.projects[app.selected_project_index.selected().unwrap()];
     }
@@ -71,33 +66,26 @@ impl Project {
             return;
         }
 
-        let new_project = Project {
+        app.projects.push(Project {
             title: value.to_string(),
             tasks: vec![],
-        };
+        });
 
-        let mut internal_projects = app.projects.clone();
-        internal_projects.push(new_project);
-
-        Json::write(internal_projects);
-        Project::reload(app, items)
+        Json::write(app.projects.clone());
+        Project::load_items(app, items)
     }
 
     pub fn rename(app: &mut App, items: &mut Vec<ListItem>, value: &str) {
-        let mut internal_projects = app.projects.clone();
+        app.projects[app.selected_project_index.selected().unwrap()].title = value.to_string();
 
-        internal_projects[app.selected_project_index.selected().unwrap()].title = value.to_string();
-
-        Json::write(internal_projects);
-        Project::reload(app, items)
+        Json::write(app.projects.clone());
+        Project::load_items(app, items)
     }
 
     pub fn delete(app: &mut App, items: &mut Vec<ListItem>) {
-        let mut internal_projects = app.projects.clone();
+        app.projects.remove(app.selected_project_index.selected().unwrap());
 
-        internal_projects.remove(app.selected_project_index.selected().unwrap());
-
-        Json::write(internal_projects);
-        Project::reload(app, items)
+        Json::write(app.projects.clone());
+        Project::load_items(app, items)
     }
 }
