@@ -65,3 +65,43 @@ impl Util {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spaced_title_wraps_with_spaces() {
+        assert_eq!(Util::get_spaced_title("hello"), " hello ");
+    }
+
+    #[test]
+    fn priority_indicator_mapping() {
+        assert_eq!(Util::get_priority_indicator(TASK_PRIORITY_NONE), "");
+        assert_eq!(Util::get_priority_indicator(1), "!!!");
+        assert_eq!(Util::get_priority_indicator(2), "!!");
+        assert_eq!(Util::get_priority_indicator(3), "!");
+        // Unknown values fall back to an empty indicator
+        assert_eq!(Util::get_priority_indicator(99), "");
+    }
+
+    #[test]
+    fn format_timestamp_handles_none_and_epoch() {
+        assert_eq!(Util::format_timestamp(None), "N/A");
+        assert!(Util::format_timestamp(Some(0)).contains("1970-01-01"));
+    }
+
+    #[test]
+    fn format_duration_variants() {
+        assert_eq!(Util::format_duration(None, Some(10)), "Task not completed");
+        assert_eq!(Util::format_duration(Some(10), None), "Task not completed");
+        assert_eq!(
+            Util::format_duration(Some(10), Some(10)),
+            "Invalid time range"
+        );
+        assert_eq!(Util::format_duration(Some(0), Some(45)), "45s");
+        assert_eq!(Util::format_duration(Some(0), Some(90)), "1m 30s");
+        assert_eq!(Util::format_duration(Some(0), Some(3700)), "1h 1m 40s");
+        assert_eq!(Util::format_duration(Some(0), Some(90061)), "1d 1h 1m 1s");
+    }
+}

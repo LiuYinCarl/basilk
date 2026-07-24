@@ -52,3 +52,61 @@ impl Migration {
         data
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{Task, TASK_PRIORITY_NONE, TASK_STATUS_ON_GOING};
+
+    fn sample_data() -> Vec<Project> {
+        vec![Project {
+            title: "p".to_string(),
+            tasks: vec![Task {
+                title: "t".to_string(),
+                status: TASK_STATUS_ON_GOING.to_string(),
+                priority: 2,
+                created_at: None,
+                completed_at: None,
+                note: "keep me".to_string(),
+            }],
+        }]
+    }
+
+    #[test]
+    fn migrations_from_oldest_version_apply_all_steps() {
+        let migrations = Migration::get_migrations("6ad96", sample_data());
+
+        assert_eq!(migrations.len(), 2);
+        assert_eq!(migrations[0].0, "911fc");
+        assert_eq!(migrations[1].0, "a4e1b");
+
+        let task = &migrations[1].1[0].tasks[0];
+        assert_eq!(task.priority, TASK_PRIORITY_NONE);
+        assert_eq!(task.note, "");
+    }
+
+    #[test]
+    fn migrations_from_middle_version_apply_remaining_steps() {
+        let migrations = Migration::get_migrations("911fc", sample_data());
+
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].0, "a4e1b");
+        // add_priority is not re-applied: priority is preserved
+        assert_eq!(migrations[0].1[0].tasks[0].priority, 2);
+    }
+
+    #[test]
+    fn no_migrations_for_latest_or_unknown_version() {
+        assert!(Migration::get_migrations("a4e1b", sample_data()).is_empty());
+        assert!(Migration::get_migrations("unknown", sample_data()).is_empty());
+    }
+
+    #[test]
+    fn json_versions_are_chained_in_mapper_order() {
+        // Every version except the last must produce migrations ending at the last version
+        for (i, version) in JSON_VERSIONS.iter().enumerate() {
+            let migrations = Migration::get_migrations(version, vec![]);
+            assert_eq!(migrations.len(), JSON_VERSIONS.len() - 1 - i);
+        }
+    }
+}

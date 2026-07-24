@@ -22,6 +22,10 @@ struct DataWrapper {
 
 impl Json {
     pub fn get_dir_path() -> PathBuf {
+        if let Ok(dir) = std::env::var("BASILK_CONFIG_DIR") {
+            return PathBuf::from(dir);
+        }
+
         let mut path = dirs::config_dir().unwrap();
         path.push(DIR_CONFIG_NAME);
 
@@ -148,5 +152,80 @@ impl Json {
     fn write_internal(path: &PathBuf, version: String, data: Vec<Project>) {
         let wrapper = DataWrapper { version, data };
         fs::write(path, to_string(&wrapper).unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{TASK_PRIORITY_NONE, TASK_STATUS_DONE};
+    use crate::test_utils::{make_task, ENV_LOCK};
+
+    #[test]
+    fn check_creates_empty_data_file_and_read_returns_empty() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+
+        let migrated = Json::check().unwrap();
+        assert!(!migrated);
+        assert!(Json::get_data_path().is_file());
+        assert_eq!(Json::read(), vec![]);
+    }
+
+    #[test]
+    fn write_then_read_round_trips() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+        Json::check().unwrap();
+
+        let projects = vec![Project {
+            title: "p".to_string(),
+            tasks: vec![make_task("t", TASK_STATUS_DONE, TASK_PRIORITY_NONE)],
+        }];
+
+        Json::write(projects.clone());
+        assert_eq!(Json::read(), projects);
+    }
+
+    #[test]
+    fn check_resets_an_empty_data_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+
+        fs::write(Json::get_data_path(), "  ").unwrap();
+        let migrated = Json::check().unwrap();
+
+        assert!(!migrated);
+        assert_eq!(Json::read(), vec![]);
+    }
+
+    #[test]
+    fn check_migrates_old_versioned_files() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+
+        // Old format: a bare Vec<Project> stored in `<version>.json`
+        let old_projects = vec![Project {
+            title: "legacy".to_string(),
+            tasks: vec![make_task("old task", TASK_STATUS_DONE, 3)],
+        }];
+        let old_path = Json::get_json_path(JSON_VERSIONS[0].to_string());
+        fs::write(&old_path, to_string(&old_projects).unwrap()).unwrap();
+
+        let migrated = Json::check().unwrap();
+
+        assert!(migrated);
+        assert!(!old_path.is_file(), "old versioned file is removed");
+
+        let projects = Json::read();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].title, "legacy");
+        // Migrations reset priority to NONE and clear the note
+        assert_eq!(projects[0].tasks[0].priority, TASK_PRIORITY_NONE);
+        assert_eq!(projects[0].tasks[0].note, "");
     }
 }
