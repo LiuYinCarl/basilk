@@ -73,5 +73,4 @@ impl Ui {
             area.y + 1,
         )
     }
-
 }

@@ -1,9 +1,4 @@
-use std::{
-    error::Error,
-    fs,
-    path::PathBuf,
-    sync::Mutex,
-};
+use std::{error::Error, fs, path::PathBuf, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
@@ -78,7 +73,11 @@ impl Json {
             for (version, migration_data) in migrations.iter() {
                 version_state.clear();
                 version_state.push_str(version);
-                Json::write_internal(&data_path, version_state.to_string(), migration_data.clone());
+                Json::write_internal(
+                    &data_path,
+                    version_state.to_string(),
+                    migration_data.clone(),
+                );
             }
 
             return Ok(true);
@@ -98,7 +97,10 @@ impl Json {
             version_state.clear();
             version_state.push_str(last_json_version);
             let projects: Vec<Project> = vec![];
-            let wrapper = DataWrapper { version: last_json_version.to_string(), data: projects };
+            let wrapper = DataWrapper {
+                version: last_json_version.to_string(),
+                data: projects,
+            };
             fs::write(&data_path, to_string(&wrapper).unwrap()).unwrap();
             return Ok(false);
         }
@@ -110,7 +112,10 @@ impl Json {
 
         version_state.clear();
         version_state.push_str(old_version);
-        let wrapper = DataWrapper { version: old_version.to_string(), data };
+        let wrapper = DataWrapper {
+            version: old_version.to_string(),
+            data,
+        };
         fs::write(&data_path, to_string(&wrapper).unwrap()).unwrap();
 
         // Optionally delete old file

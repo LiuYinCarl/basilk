@@ -7,7 +7,13 @@ use ratatui::{
 };
 use tui_input::Input;
 
-use crate::{project::Project, task::{Task, TASK_PRIORITY_NONE}, ui::Ui, util::Util, App, ViewMode};
+use crate::{
+    project::Project,
+    task::{Task, TASK_PRIORITY_NONE},
+    ui::Ui,
+    util::Util,
+    App, ViewMode,
+};
 
 pub struct View {}
 
@@ -131,18 +137,30 @@ impl View {
         let priority_text = if task.priority == TASK_PRIORITY_NONE {
             "None".to_string()
         } else {
-            format!("{} ({})", task.priority, Util::get_priority_indicator(task.priority))
+            format!(
+                "{} ({})",
+                task.priority,
+                Util::get_priority_indicator(task.priority)
+            )
         };
 
         let mut lines = vec![
             Line::from(vec![
-                Span::styled("Task: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Task: ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(&task.title),
             ]),
             Line::raw(""),
             Line::from(vec![
                 Span::styled("Status: ", Style::default().fg(Color::Cyan)),
-                Span::styled(&task.status, Style::default().fg(Task::get_status_color(&task.status))),
+                Span::styled(
+                    &task.status,
+                    Style::default().fg(Task::get_status_color(&task.status)),
+                ),
             ]),
             Line::raw(""),
             Line::from(vec![
@@ -185,9 +203,12 @@ impl View {
         }
 
         lines.push(Line::raw(""));
-        lines.push(Line::from(vec![
-            Span::styled("Press any key to close", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "Press any key to close",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )]));
 
         let widget = Paragraph::new(Text::from(lines))
             .alignment(Alignment::Left)
@@ -231,7 +252,9 @@ impl View {
                 Line::from(vec![
                     Span::styled(
                         format!("{:<16}", keys),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(*desc),
                 ])
@@ -241,7 +264,9 @@ impl View {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
             "Press any key to close",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
         )));
 
         let widget = Paragraph::new(Text::from(lines))

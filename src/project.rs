@@ -83,7 +83,8 @@ impl Project {
     }
 
     pub fn delete(app: &mut App, items: &mut Vec<ListItem>) {
-        app.projects.remove(app.selected_project_index.selected().unwrap());
+        app.projects
+            .remove(app.selected_project_index.selected().unwrap());
 
         Json::write(app.projects.clone());
         Project::load_items(app, items)

@@ -136,7 +136,15 @@ impl App {
 
         loop {
             terminal.draw(|f| {
-                self.render(f, f.size(), &input, &items, &status_items, &priority_items, &delete_confirm_items)
+                self.render(
+                    f,
+                    f.size(),
+                    &input,
+                    &items,
+                    &status_items,
+                    &priority_items,
+                    &delete_confirm_items,
+                )
             })?;
 
             if let Event::Key(key) = event::read()? {
@@ -225,7 +233,11 @@ impl App {
                             }
                         },
                         ViewMode::DeleteProject => {
-                            if self.handle_modal_nav(key.code, &delete_confirm_items, ViewMode::ViewProjects) {
+                            if self.handle_modal_nav(
+                                key.code,
+                                &delete_confirm_items,
+                                ViewMode::ViewProjects,
+                            ) {
                                 continue;
                             }
                             if key.code == Enter {
@@ -236,7 +248,7 @@ impl App {
                                 self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewProjects);
                             }
-                        },
+                        }
 
                         ViewMode::ViewTasks => match key.code {
                             Char('h') => {
@@ -363,9 +375,10 @@ impl App {
                                 self.selected_status_task_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-                        },
+                        }
                         ViewMode::ChangePriorityTask => {
-                            if self.handle_modal_nav(key.code, &priority_items, ViewMode::ViewTasks) {
+                            if self.handle_modal_nav(key.code, &priority_items, ViewMode::ViewTasks)
+                            {
                                 continue;
                             }
                             if key.code == Enter {
@@ -379,7 +392,7 @@ impl App {
                                 self.selected_priority_task_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-                        },
+                        }
                         ViewMode::AddTask => match key.code {
                             Enter => {
                                 Task::create(self, &mut items, input.value());
@@ -394,7 +407,11 @@ impl App {
                             }
                         },
                         ViewMode::DeleteTask => {
-                            if self.handle_modal_nav(key.code, &delete_confirm_items, ViewMode::ViewTasks) {
+                            if self.handle_modal_nav(
+                                key.code,
+                                &delete_confirm_items,
+                                ViewMode::ViewTasks,
+                            ) {
                                 continue;
                             }
                             if key.code == Enter {
@@ -405,7 +422,7 @@ impl App {
                                 self.delete_confirm_index.select(Some(0));
                                 App::change_view(self, ViewMode::ViewTasks);
                             }
-                        },
+                        }
                         ViewMode::ViewTaskDetails => match key.code {
                             Char('e') => {
                                 input = input
@@ -585,7 +602,12 @@ impl App {
         self.view_mode = mode
     }
 
-    fn handle_modal_nav(&mut self, key: KeyCode, items: &Vec<ListItem>, return_mode: ViewMode) -> bool {
+    fn handle_modal_nav(
+        &mut self,
+        key: KeyCode,
+        items: &Vec<ListItem>,
+        return_mode: ViewMode,
+    ) -> bool {
         match key {
             KeyCode::Esc => {
                 self.use_state().select(Some(0));

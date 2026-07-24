@@ -16,9 +16,7 @@ impl Migration {
         ];
 
         // The start index where the migration are picked
-        let start_index = mapper
-            .iter()
-            .position(|(key, _val)| *key == version);
+        let start_index = mapper.iter().position(|(key, _val)| *key == version);
 
         if start_index.is_none() {
             return vec![];
