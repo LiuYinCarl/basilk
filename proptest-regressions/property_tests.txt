@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7739710e9b2ca992bc3ead3dbb2de2e7a1f2c7cd67afefb11cb3ce5310111781 # shrinks to tasks = [Task { title: "", status: "UpNext", priority: 0, created_at: None, completed_at: None, note: "", time_spent_secs: 0, estimated_hours: 5124095576030432 }], hide_done = false, selected = 0

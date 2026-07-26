@@ -19,6 +19,11 @@ pub struct Task {
     pub completed_at: Option<u64>,
     #[serde(default)]
     pub note: String,
+    #[serde(default)]
+    pub time_spent_secs: u64,
+    /// Estimated time the task is expected to take; 0 = no estimate.
+    #[serde(default)]
+    pub estimated_hours: u64,
 }
 
 pub const TASK_STATUS_DONE: &str = "Done";
@@ -92,6 +97,8 @@ impl Task {
                 created_at: None,
                 completed_at: None,
                 note: "".to_string(),
+                time_spent_secs: 0,
+                estimated_hours: 0,
             })
             .clone()
             .title;
@@ -146,6 +153,14 @@ impl Task {
                 repr = [priority_repr, repr].concat()
             }
 
+            // Estimate progress for tasks with an estimated duration
+            if let Some(pct) = task.estimate_progress(0) {
+                repr.push(Span::styled(
+                    format!(" [{}%]", pct),
+                    Style::default().fg(if pct >= 100 { Color::Red } else { Color::Cyan }),
+                ));
+            }
+
             let line = Line::from(repr);
 
             items.push(ListItem::from(line))
@@ -173,6 +188,8 @@ impl Task {
                 created_at: Some(Self::current_timestamp()),
                 completed_at: None,
                 note: "".to_string(),
+                time_spent_secs: 0,
+                estimated_hours: 0,
             });
 
         Json::write(app.projects.clone());
@@ -192,6 +209,15 @@ impl Task {
         app.projects[app.selected_project_index.selected().unwrap()].tasks
             [app.selected_task_index.selected().unwrap()]
         .note = value.to_string();
+
+        Json::write(app.projects.clone());
+        Task::load_items(app, items)
+    }
+
+    pub fn update_estimate(app: &mut App, items: &mut Vec<ListItem>, hours: u64) {
+        app.projects[app.selected_project_index.selected().unwrap()].tasks
+            [app.selected_task_index.selected().unwrap()]
+        .estimated_hours = hours;
 
         Json::write(app.projects.clone());
         Task::load_items(app, items)
@@ -224,6 +250,39 @@ impl Task {
 
         Json::write(app.projects.clone());
         Task::load_items(app, items)
+    }
+
+    /// Percentage of the estimate already spent, `None` when no estimate is
+    /// set. `extra_secs` accounts for time not yet settled (a running timer).
+    pub fn estimate_progress(&self, extra_secs: u64) -> Option<u64> {
+        if self.estimated_hours == 0 {
+            return None;
+        }
+
+        let pct = self.time_spent_secs.saturating_add(extra_secs) as f64
+            / self.estimated_hours.saturating_mul(3600) as f64
+            * 100.0;
+        Some(pct.round() as u64)
+    }
+
+    /// Accumulate timer seconds into a task, located by project index and
+    /// title (list indexes shift on sort, so the title is the stable identity).
+    /// A task deleted while its timer was running is silently skipped.
+    pub fn add_time_spent(app: &mut App, project_index: usize, task_title: &str, secs: u64) {
+        if secs == 0 {
+            return;
+        }
+
+        let Some(project) = app.projects.get_mut(project_index) else {
+            return;
+        };
+        let Some(task) = project.tasks.iter_mut().find(|t| t.title == task_title) else {
+            return;
+        };
+
+        task.time_spent_secs += secs;
+
+        Json::write(app.projects.clone());
     }
 
     pub fn delete(app: &mut App, items: &mut Vec<ListItem>) {
@@ -362,6 +421,92 @@ mod tests {
 
         assert_eq!(app.projects[0].tasks.len(), 1);
         assert_eq!(app.projects[0].tasks[0].title, "t1");
+    }
+
+    #[test]
+    fn add_time_spent_accumulates_and_persists() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _dir = setup_temp_config();
+        let mut app = app_with_tasks(vec![make_task(
+            "t",
+            TASK_STATUS_UP_NEXT,
+            TASK_PRIORITY_NONE,
+        )]);
+
+        Task::add_time_spent(&mut app, 0, "t", 120);
+        Task::add_time_spent(&mut app, 0, "t", 30);
+
+        assert_eq!(app.projects[0].tasks[0].time_spent_secs, 150);
+        assert_eq!(Json::read()[0].tasks[0].time_spent_secs, 150);
+    }
+
+    #[test]
+    fn add_time_spent_ignores_zero_secs_and_missing_tasks() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _dir = setup_temp_config();
+        let mut app = app_with_tasks(vec![make_task(
+            "t",
+            TASK_STATUS_UP_NEXT,
+            TASK_PRIORITY_NONE,
+        )]);
+
+        Task::add_time_spent(&mut app, 0, "t", 0);
+        Task::add_time_spent(&mut app, 0, "ghost", 60);
+        Task::add_time_spent(&mut app, 9, "t", 60);
+
+        assert_eq!(app.projects[0].tasks[0].time_spent_secs, 0);
+    }
+
+    #[test]
+    fn update_estimate_changes_selected_task_and_persists() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _dir = setup_temp_config();
+        let mut app = app_with_tasks(vec![make_task(
+            "t",
+            TASK_STATUS_UP_NEXT,
+            TASK_PRIORITY_NONE,
+        )]);
+        let mut items = vec![];
+
+        Task::update_estimate(&mut app, &mut items, 500);
+
+        assert_eq!(app.projects[0].tasks[0].estimated_hours, 500);
+        assert_eq!(Json::read()[0].tasks[0].estimated_hours, 500);
+    }
+
+    #[test]
+    fn new_tasks_have_no_estimate() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _dir = setup_temp_config();
+        let mut app = app_with_tasks(vec![]);
+        let mut items = vec![];
+
+        Task::create(&mut app, &mut items, "do it");
+
+        assert_eq!(app.projects[0].tasks[0].estimated_hours, 0);
+    }
+
+    #[test]
+    fn estimate_progress_is_none_without_estimate() {
+        let mut task = make_task("t", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE);
+        task.time_spent_secs = 3600;
+        task.estimated_hours = 0;
+
+        assert_eq!(task.estimate_progress(0), None);
+    }
+
+    #[test]
+    fn estimate_progress_rounds_and_includes_extra_secs() {
+        let mut task = make_task("t", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE);
+        task.estimated_hours = 10; // 36000 secs
+
+        task.time_spent_secs = 3600; // 10%
+        assert_eq!(task.estimate_progress(0), Some(10));
+        // extra (unsettled timer) time counts towards the progress
+        assert_eq!(task.estimate_progress(1800), Some(15));
+
+        task.time_spent_secs = 36360; // 101%
+        assert_eq!(task.estimate_progress(0), Some(101));
     }
 
     #[test]

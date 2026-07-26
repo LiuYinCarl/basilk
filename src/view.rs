@@ -10,6 +10,7 @@ use tui_input::Input;
 use crate::{
     project::Project,
     task::{Task, TASK_PRIORITY_NONE},
+    timer::TimerKind,
     ui::Ui,
     util::Util,
     App, ViewMode,
@@ -39,6 +40,127 @@ impl View {
 
     pub fn show_edit_note_modal(f: &mut Frame, area: Rect, input: &Input) {
         Ui::create_input_modal("Note", f, area, input)
+    }
+
+    pub fn show_countdown_modal(f: &mut Frame, area: Rect, input: &Input) {
+        Ui::create_input_modal("Countdown (minutes)", f, area, input)
+    }
+
+    pub fn show_task_estimate_modal(f: &mut Frame, area: Rect, input: &Input) {
+        Ui::create_input_modal("Estimate (hours, 0 = none)", f, area, input)
+    }
+
+    pub fn show_timer_modal(app: &App, f: &mut Frame, area: Rect) {
+        let Some(timer) = app.timer.as_ref() else {
+            return;
+        };
+
+        let (readout, target) = match timer.kind {
+            TimerKind::Stopwatch => (Util::format_secs(timer.elapsed().as_secs()), None),
+            TimerKind::Countdown => (
+                Util::format_secs(timer.remaining().unwrap_or_default().as_secs()),
+                Some(Util::format_secs(timer.target_secs)),
+            ),
+        };
+
+        let running_low = timer.is_running()
+            && timer.kind == TimerKind::Countdown
+            && timer.remaining().unwrap_or_default().as_secs() <= 10;
+
+        let readout_color = if running_low {
+            Color::Red
+        } else if timer.is_running() {
+            Color::Green
+        } else {
+            Color::Yellow
+        };
+
+        let mut lines = vec![
+            Line::from(Span::styled(
+                readout,
+                Style::default()
+                    .fg(readout_color)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::raw(""),
+        ];
+
+        if let Some(target) = target {
+            lines.push(Line::from(Span::styled(
+                format!("of {}", target),
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::raw(""));
+        }
+
+        match &timer.bound {
+            Some(bound) => {
+                lines.push(Line::from(vec![
+                    Span::styled("Task: ", Style::default().fg(Color::Cyan)),
+                    Span::raw(&bound.task_title),
+                ]));
+                lines.push(Line::raw(""));
+
+                // Live estimate progress, including the unsettled time on this timer
+                let estimate_line = app
+                    .projects
+                    .get(bound.project_index)
+                    .and_then(|p| p.tasks.iter().find(|t| t.title == bound.task_title))
+                    .and_then(|t| {
+                        t.estimate_progress(timer.elapsed().as_secs())
+                            .map(|pct| (t.estimated_hours, pct))
+                    });
+
+                if let Some((hours, pct)) = estimate_line {
+                    lines.push(Line::from(vec![
+                        Span::styled("Estimate: ", Style::default().fg(Color::Cyan)),
+                        Span::styled(
+                            format!("{}h ({}% spent)", hours, pct),
+                            Style::default().fg(if pct >= 100 {
+                                Color::Red
+                            } else {
+                                Color::DarkGray
+                            }),
+                        ),
+                    ]));
+                    lines.push(Line::raw(""));
+                }
+            }
+            None => {
+                lines.push(Line::from(Span::styled(
+                    "pomodoro",
+                    Style::default().fg(Color::Cyan),
+                )));
+                lines.push(Line::raw(""));
+            }
+        }
+
+        lines.push(Line::from(Span::styled(
+            if timer.is_running() {
+                "running"
+            } else {
+                "paused"
+            },
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled(
+            "Space pause/resume · Enter stop · Esc background",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )));
+
+        let title = match timer.kind {
+            TimerKind::Stopwatch => " Timer ",
+            TimerKind::Countdown => " Pomodoro ",
+        };
+
+        let widget = Paragraph::new(Text::from(lines))
+            .alignment(Alignment::Center)
+            .block(Block::bordered().title(title));
+
+        Ui::create_modal(f, 50, 13, area, widget)
     }
 
     pub fn show_delete_item_modal(
@@ -102,12 +224,21 @@ impl View {
     }
 
     pub fn show_items(app: &mut App, items: &Vec<ListItem>, f: &mut Frame, area: Rect) {
-        let block: Block = match app.view_mode {
-            ViewMode::ViewProjects
-            | ViewMode::AddProject
-            | ViewMode::RenameProject
-            | ViewMode::DeleteProject => Block::bordered(),
-            _ => Block::bordered().title(Util::get_spaced_title(&Project::get_current(app).title)),
+        // Timer modals show the list of the view they were opened from
+        let from_projects =
+            matches!(
+                app.view_mode,
+                ViewMode::ViewProjects
+                    | ViewMode::AddProject
+                    | ViewMode::RenameProject
+                    | ViewMode::DeleteProject
+            ) || (matches!(app.view_mode, ViewMode::TimerTask | ViewMode::SetCountdown)
+                && app.previous_view_mode == ViewMode::ViewProjects);
+
+        let block: Block = if from_projects {
+            Block::bordered()
+        } else {
+            Block::bordered().title(Util::get_spaced_title(&Project::get_current(app).title))
         };
 
         // Iterate through all elements in the `items` and stylize them.
@@ -202,9 +333,37 @@ impl View {
             lines.push(Line::raw(""));
         }
 
+        // Accumulated timer time vs. the estimated duration
+        lines.push(Line::from(vec![
+            Span::styled("Time Spent: ", Style::default().fg(Color::Cyan)),
+            Span::raw(format!(
+                "{}h {}m ({})",
+                task.time_spent_secs / 3600,
+                (task.time_spent_secs % 3600) / 60,
+                Util::format_secs(task.time_spent_secs),
+            )),
+        ]));
+        lines.push(Line::raw(""));
+
+        let estimate_text = if task.estimated_hours > 0 {
+            format!(
+                "{}h ({:.2}% spent)",
+                task.estimated_hours,
+                task.time_spent_secs as f64 / task.estimated_hours.saturating_mul(3600) as f64
+                    * 100.0,
+            )
+        } else {
+            "none".to_string()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Estimate: ", Style::default().fg(Color::Cyan)),
+            Span::raw(estimate_text),
+        ]));
+        lines.push(Line::raw(""));
+
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![Span::styled(
-            "Press any key to close",
+            "e edit note · g edit estimate · any other key to close",
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
@@ -215,7 +374,7 @@ impl View {
             .wrap(Wrap { trim: true })
             .block(Block::bordered().title(" Task Details "));
 
-        Ui::create_modal(f, 60, 18, area, widget)
+        Ui::create_modal(f, 60, 22, area, widget)
     }
 
     pub fn show_help_modal(app: &mut App, f: &mut Frame, area: Rect) {
@@ -226,6 +385,7 @@ impl View {
                 ("n", "new"),
                 ("r", "rename"),
                 ("d", "delete"),
+                ("c", "pomodoro timer"),
                 ("h", "help"),
                 ("q", "quit"),
             ],
@@ -238,8 +398,11 @@ impl View {
                 ("r", "rename"),
                 ("v", "details"),
                 ("e", "note"),
+                ("v → g", "details: edit estimate"),
                 ("d", "delete"),
                 ("t", "toggle done"),
+                ("s", "stopwatch timer"),
+                ("c", "pomodoro timer"),
                 ("h", "help"),
                 ("q", "quit"),
             ],
@@ -274,6 +437,6 @@ impl View {
             .wrap(Wrap { trim: true })
             .block(Block::bordered().title(" Help "));
 
-        Ui::create_modal(f, 42, 16, area, widget)
+        Ui::create_modal(f, 42, 19, area, widget)
     }
 }

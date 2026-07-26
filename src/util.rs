@@ -28,6 +28,16 @@ impl Util {
         "!!!".chars().take((priority_value).into()).collect()
     }
 
+    /// Format a plain seconds count as HH:MM:SS (timer readouts).
+    pub fn format_secs(secs: u64) -> String {
+        format!(
+            "{:02}:{:02}:{:02}",
+            secs / 3600,
+            (secs % 3600) / 60,
+            secs % 60
+        )
+    }
+
     pub fn format_timestamp(timestamp: Option<u64>) -> String {
         timestamp
             .and_then(|ts| DateTime::from_timestamp(ts as i64, 0))
@@ -83,6 +93,15 @@ mod tests {
         assert_eq!(Util::get_priority_indicator(3), "!");
         // Unknown values fall back to an empty indicator
         assert_eq!(Util::get_priority_indicator(99), "");
+    }
+
+    #[test]
+    fn format_secs_renders_hh_mm_ss() {
+        assert_eq!(Util::format_secs(0), "00:00:00");
+        assert_eq!(Util::format_secs(59), "00:00:59");
+        assert_eq!(Util::format_secs(60), "00:01:00");
+        assert_eq!(Util::format_secs(3661), "01:01:01");
+        assert_eq!(Util::format_secs(90_061), "25:01:01");
     }
 
     #[test]

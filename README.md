@@ -71,6 +71,7 @@ Press `h` to view the keybinding list in-app.
 | `n` | New project |
 | `r` | Rename selected project |
 | `d` | Delete selected project |
+| `c` | Pomodoro (countdown) timer |
 | `h` | Help |
 
 ### Task List View
@@ -86,6 +87,8 @@ Press `h` to view the keybinding list in-app.
 | `e` | Edit task note |
 | `d` | Delete selected task |
 | `t` | Toggle show/hide completed tasks |
+| `s` | Stopwatch timer for selected task |
+| `c` | Pomodoro (countdown) timer |
 | `h` | Help |
 
 ### Change Status / Priority Modals
@@ -111,9 +114,22 @@ Press `h` to view the keybinding list in-app.
 | Key | Action |
 |---|---|
 | `e` | Edit task note |
+| `g` | Edit estimated time (hours, `0` = no estimate) |
 | Any other key | Close details |
 
-Tasks are displayed as `[Status] Title` with optional `[Priority]` prefix.
+### Timer View
+| Key | Action |
+|---|---|
+| `Space` | Pause / resume |
+| `Enter` | Stop (a stopwatch saves its elapsed time to the bound task) |
+| `Esc` | Close (timer keeps running in the background) |
+
+The timer keeps running while you navigate (even back to the project list); it stops when you press `Enter` in the timer view, when a countdown finishes, or when you quit.
+
+- **Stopwatch** (`s`, task list): bound to the selected task; the elapsed time accumulates into the task's **Time Spent**, shown in the details view next to the task's **Estimate** (how long you expect the task to take, editable per task with `g`; the details view shows what percentage of the estimate has been spent).
+- **Pomodoro** (`c`, both views): a global countdown for focus sessions; it rings the terminal bell at zero and is not tied to any task, so nothing is accumulated.
+
+Tasks are displayed as `[Status] Title` with optional `[Priority]` prefix and, for tasks with an estimate set, a `[x%]` suffix showing how much of the estimate has been spent (red once it reaches 100%).
 - Statuses: **UpNext** (magenta), **OnGoing** (yellow), **Done** (green, ~~crossed out~~)
 - Priorities: `!` (highest), `!!` (high), `!!!` (low)
 

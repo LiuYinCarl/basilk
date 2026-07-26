@@ -29,15 +29,30 @@ fn arb_task() -> impl Strategy<Value = Task> {
         any::<Option<u64>>(),
         any::<Option<u64>>(),
         ".*",
+        any::<u64>(),
+        any::<u64>(),
     )
         .prop_map(
-            |(title, status, priority, created_at, completed_at, note)| Task {
+            |(
                 title,
                 status,
                 priority,
                 created_at,
                 completed_at,
                 note,
+                time_spent_secs,
+                estimated_hours,
+            )| {
+                Task {
+                    title,
+                    status,
+                    priority,
+                    created_at,
+                    completed_at,
+                    note,
+                    time_spent_secs,
+                    estimated_hours,
+                }
             },
         )
 }

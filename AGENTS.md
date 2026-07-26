@@ -20,6 +20,7 @@ Basilk is a TUI-based kanban task manager written in Rust using `ratatui`.
 - `src/migration.rs`: JSON data schema migrations.
 - `src/project.rs`: Project data model and logic.
 - `src/task.rs`: Task data model, status/priority constants, and logic.
+- `src/timer.rs`: Task-bound stopwatch/countdown runtime state (not persisted); on settle the elapsed seconds are accumulated into `Task.time_spent_secs`.
 - `src/ui.rs`: UI utility functions for creating modals and layouts.
 - `src/view.rs`: Higher-level UI rendering logic (rendering specific views/modals).
 - `src/util.rs`: Miscellaneous utility functions.
@@ -53,10 +54,13 @@ The `App` struct in `main.rs` manages the application state, including selected 
 ## Gotchas
 
 - **Input Handling**: `tui-input` is used for text fields. Note that the event loop in `main.rs` filters for `KeyEventKind::Press` to avoid double-processing on Windows.
+- **Event Loop**: The main loop uses `event::poll(250ms)` instead of a blocking read so the task timer (`App.timer`) can tick and redraw every second; `App::tick_timer` runs after each iteration.
+- **Timers**: `s` in the task view starts a stopwatch bound to the selected task; `c` in either view starts a global pomodoro countdown (`src/timer.rs`, binding is `Option<TimerTaskBinding>`). A stopwatch persists its seconds on settle (`App::settle_timer` → `Task::add_time_spent` into `time_spent_secs`): on stop or on quit; a pomodoro never persists — at zero it rings the terminal bell and is dropped. Timers keep running across view switches; deleting the bound task drops the timer, deleting a project drops or re-indexes it. Timer modals return to the view they were opened from via `previous_view_mode`.
+- **Time Estimate**: Each task has an `estimated_hours` field (0 = no estimate, editable with `g` in the task details view); the details view and timer modal show the percentage of the estimate already spent, and the task list renders a `[x%]` suffix. Progress math lives in `Task::estimate_progress` (saturating arithmetic — arbitrary JSON values must not overflow). Timers are bound to a task by `(project_index, task_title)`; renaming a bound task updates the timer, deleting it drops the timer.
 - **Data Loading**: `Project::reload` and `Task::reload` read the entire JSON file from disk. Changes are written back to disk immediately after most operations (create, rename, delete, change status/priority).
 - **Sorting**: Tasks are sorted during `Task::load_items`. `sort_by_key` is stable and the priority sort runs last, so the final order is **priority-major** with status as the tie-breaker; done tasks (priority reset to NONE) end up last.
 - **Testing**: Tests share fixtures from `test_utils` in `main.rs`. Any test touching the disk layer must hold `ENV_LOCK` and use `setup_temp_config()` (sets `BASILK_CONFIG_DIR`).
 - **Migrations**: If you change the data schema (e.g., in `Project` or `Task` structs), you **must** add a new migration in `migration.rs` and update `JSON_VERSIONS`.
 
 ## Configuration
-Stored in `config.toml` in the config directory. Currently only supports `ui.show_help`.
+There is currently no config file mechanism in the codebase (an earlier `src/config.rs` with `ui.show_help` no longer exists). All behavior is compiled in; per-task settings like `estimated_hours` live in the JSON data.
