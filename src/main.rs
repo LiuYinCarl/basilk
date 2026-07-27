@@ -598,25 +598,34 @@ impl App {
                                     input.handle_event(&Event::Key(key));
                                 }
                             },
-                            ViewMode::TimerTask => match key.code {
-                                Char(' ') => {
-                                    if let Some(timer) = self.timer.as_mut() {
-                                        if timer.is_running() {
-                                            timer.pause();
-                                        } else {
-                                            timer.resume();
-                                        }
-                                    }
-                                }
-                                Enter => {
+                            ViewMode::TimerTask => {
+                                if self.timer.as_ref().is_some_and(TimerState::is_finished) {
+                                    // Finished countdown stays on screen; any key dismisses it
                                     self.settle_timer();
                                     self.back_to_previous_view();
+                                    continue;
                                 }
-                                Esc => {
-                                    self.back_to_previous_view();
+
+                                match key.code {
+                                    Char(' ') => {
+                                        if let Some(timer) = self.timer.as_mut() {
+                                            if timer.is_running() {
+                                                timer.pause();
+                                            } else {
+                                                timer.resume();
+                                            }
+                                        }
+                                    }
+                                    Enter => {
+                                        self.settle_timer();
+                                        self.back_to_previous_view();
+                                    }
+                                    Esc => {
+                                        self.back_to_previous_view();
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
-                            },
+                            }
                             ViewMode::SetCountdown => match key.code {
                                 Enter => {
                                     let raw = input.value().trim().to_string();
@@ -898,13 +907,13 @@ impl App {
     }
 
     /// Countdown bookkeeping, run on every event-loop iteration: when the
-    /// pomodoro reaches zero, ring the terminal bell once, drop the timer,
-    /// and close the timer modal if open.
+    /// pomodoro reaches zero, ring the terminal bell once and leave the
+    /// timer (and its modal, if open) in the finished state until the
+    /// user dismisses it with any key.
     fn tick_timer(&mut self) {
         let hit_zero = matches!(
             self.timer.as_ref(),
-            Some(t) if t.kind == TimerKind::Countdown
-                && t.remaining() == Some(Duration::ZERO)
+            Some(t) if t.is_finished() && !t.rung
         );
 
         if !hit_zero {
@@ -914,10 +923,8 @@ impl App {
         print!("\x07");
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
-        self.timer = None;
-
-        if self.view_mode == ViewMode::TimerTask {
-            self.back_to_previous_view();
+        if let Some(timer) = self.timer.as_mut() {
+            timer.rung = true;
         }
     }
 

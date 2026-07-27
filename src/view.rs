@@ -18,6 +18,42 @@ use crate::{
 
 pub struct View {}
 
+/// One 5-row block glyph for a digit or colon in the big timer readout.
+fn digit_glyph(c: char) -> [&'static str; 5] {
+    match c {
+        '0' => ["███", "█ █", "█ █", "█ █", "███"],
+        '1' => ["  █", "  █", "  █", "  █", "  █"],
+        '2' => ["███", "  █", "███", "█  ", "███"],
+        '3' => ["███", "  █", "███", "  █", "███"],
+        '4' => ["█ █", "█ █", "███", "  █", "  █"],
+        '5' => ["███", "█  ", "███", "  █", "███"],
+        '6' => ["███", "█  ", "███", "█ █", "███"],
+        '7' => ["███", "  █", "  █", "  █", "  █"],
+        '8' => ["███", "█ █", "███", "█ █", "███"],
+        '9' => ["███", "█ █", "███", "  █", "███"],
+        ':' => [" ", "█", " ", "█", " "],
+        _ => ["   ", "   ", "   ", "   ", "   "],
+    }
+}
+
+/// Render an HH:MM:SS readout as 5-row block digits so the timer is
+/// readable at a glance instead of a single text line.
+fn big_digit_lines(readout: &str, color: Color) -> Vec<Line<'static>> {
+    (0..5)
+        .map(|row| {
+            let text = readout
+                .chars()
+                .map(|c| digit_glyph(c)[row])
+                .collect::<Vec<_>>()
+                .join(" ");
+            Line::from(Span::styled(
+                text,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ))
+        })
+        .collect()
+}
+
 impl View {
     pub fn show_new_item_modal(f: &mut Frame, area: Rect, input: &Input) {
         Ui::create_input_modal("New", f, area, input)
@@ -55,6 +91,8 @@ impl View {
             return;
         };
 
+        let finished = timer.is_finished();
+
         let (readout, target) = match timer.kind {
             TimerKind::Stopwatch => (Util::format_secs(timer.elapsed().as_secs()), None),
             TimerKind::Countdown => (
@@ -67,7 +105,7 @@ impl View {
             && timer.kind == TimerKind::Countdown
             && timer.remaining().unwrap_or_default().as_secs() <= 10;
 
-        let readout_color = if running_low {
+        let readout_color = if finished || running_low {
             Color::Red
         } else if timer.is_running() {
             Color::Green
@@ -75,15 +113,9 @@ impl View {
             Color::Yellow
         };
 
-        let mut lines = vec![
-            Line::from(Span::styled(
-                readout,
-                Style::default()
-                    .fg(readout_color)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::raw(""),
-        ];
+        let mut lines = vec![Line::raw("")];
+        lines.extend(big_digit_lines(&readout, readout_color));
+        lines.push(Line::raw(""));
 
         if let Some(target) = target {
             lines.push(Line::from(Span::styled(
@@ -135,17 +167,24 @@ impl View {
             }
         }
 
+        let status = if finished {
+            "time's up!"
+        } else if timer.is_running() {
+            "running"
+        } else {
+            "paused"
+        };
         lines.push(Line::from(Span::styled(
-            if timer.is_running() {
-                "running"
-            } else {
-                "paused"
-            },
+            status,
             Style::default().fg(Color::DarkGray),
         )));
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
-            "Space pause/resume · Enter stop · Esc background",
+            if finished {
+                "Press any key to close"
+            } else {
+                "Space pause/resume · Enter stop · Esc background"
+            },
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
@@ -160,7 +199,7 @@ impl View {
             .alignment(Alignment::Center)
             .block(Block::bordered().title(title));
 
-        Ui::create_modal(f, 50, 13, area, widget)
+        Ui::create_modal(f, 60, 18, area, widget)
     }
 
     pub fn show_delete_item_modal(

@@ -17,7 +17,9 @@ pub struct TimerTaskBinding {
 }
 
 /// Runtime state of a timer. Not persisted; a stopwatch settles its elapsed
-/// seconds into the bound task, a countdown (pomodoro) is simply dropped.
+/// seconds into the bound task, a countdown (pomodoro) never accumulates
+/// anything — at zero it rings the bell once and stays in the finished
+/// state until the user dismisses it.
 #[derive(Debug, Clone)]
 pub struct TimerState {
     pub kind: TimerKind,
@@ -29,6 +31,9 @@ pub struct TimerState {
     pub started_at: Option<Instant>,
     /// Task binding (stopwatch only).
     pub bound: Option<TimerTaskBinding>,
+    /// Countdown only: set once the terminal bell has been rung at zero,
+    /// so it rings exactly once while the finished timer stays visible.
+    pub rung: bool,
 }
 
 impl TimerState {
@@ -42,6 +47,7 @@ impl TimerState {
                 project_index,
                 task_title,
             }),
+            rung: false,
         }
     }
 
@@ -52,6 +58,7 @@ impl TimerState {
             accumulated: Duration::ZERO,
             started_at: Some(Instant::now()),
             bound: None,
+            rung: false,
         }
     }
 
@@ -81,6 +88,11 @@ impl TimerState {
 
     pub fn is_running(&self) -> bool {
         self.started_at.is_some()
+    }
+
+    /// `true` once a countdown has run down to zero (stopwatches never finish).
+    pub fn is_finished(&self) -> bool {
+        self.remaining() == Some(Duration::ZERO)
     }
 
     pub fn pause(&mut self) {
@@ -115,6 +127,7 @@ mod tests {
             accumulated: Duration::from_secs(accumulated_secs),
             started_at: None,
             bound,
+            rung: false,
         }
     }
 
@@ -176,5 +189,17 @@ mod tests {
 
         let overtime = paused_timer(TimerKind::Countdown, 120, 90);
         assert_eq!(overtime.remaining(), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn only_a_run_down_countdown_is_finished() {
+        let done = paused_timer(TimerKind::Countdown, 120, 90);
+        assert!(done.is_finished());
+
+        let running = paused_timer(TimerKind::Countdown, 60, 90);
+        assert!(!running.is_finished());
+
+        let stopwatch = paused_timer(TimerKind::Stopwatch, 120, 0);
+        assert!(!stopwatch.is_finished());
     }
 }
