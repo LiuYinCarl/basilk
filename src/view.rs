@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Clear, HighlightSpacing, List, ListItem, Paragraph, Wrap},
@@ -9,7 +9,7 @@ use tui_input::Input;
 
 use crate::{
     project::Project,
-    task::{Task, TASK_PRIORITY_NONE},
+    task::{Task, TASK_PRIORITY_NONE, TASK_STATUSES},
     timer::TimerKind,
     ui::Ui,
     util::Util,
@@ -274,6 +274,11 @@ impl View {
             ) || (matches!(app.view_mode, ViewMode::TimerTask | ViewMode::SetCountdown)
                 && app.previous_view_mode == ViewMode::ViewProjects);
 
+        if !from_projects && app.board_view {
+            View::show_board(app, f, area);
+            return;
+        }
+
         let block: Block = if from_projects {
             Block::bordered()
         } else {
@@ -298,6 +303,84 @@ impl View {
             f.render_widget(items, area)
         } else {
             f.render_stateful_widget(items, area, app.use_state());
+        }
+    }
+
+    /// Kanban-style board: one vertical lane per task status. The focused
+    /// lane gets the status color for its border and title; every lane is
+    /// always shown (the Done lane ignores `hide_done_tasks`).
+    pub fn show_board(app: &mut App, f: &mut Frame, area: Rect) {
+        const LANE_TITLES: [&str; 3] = ["Up Next", "On Going", "Done"];
+
+        let outer =
+            Block::bordered().title(Util::get_spaced_title(&Project::get_current(app).title));
+        let inner = outer.inner(area);
+        f.render_widget(outer, area);
+
+        let columns = Layout::horizontal([
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+            Constraint::Ratio(1, 3),
+        ])
+        .spacing(1)
+        .split(inner);
+
+        for (lane, status) in TASK_STATUSES.into_iter().enumerate() {
+            let indices = Task::lane_indices(app, status);
+            let status_color = Task::get_status_color(&status.to_string());
+            let focused = lane == app.board_lane;
+
+            let lane_style = if focused {
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let lane_block = Block::bordered()
+                .title(Line::from(Span::styled(
+                    format!(" {} ({}) ", LANE_TITLES[lane], indices.len()),
+                    if focused {
+                        lane_style
+                    } else {
+                        Style::default()
+                    },
+                )))
+                .border_style(lane_style);
+
+            if indices.is_empty() {
+                let placeholder = Paragraph::new(Line::from(Span::styled(
+                    "(empty)",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                )))
+                .alignment(Alignment::Center)
+                .block(lane_block);
+
+                f.render_widget(placeholder, columns[lane]);
+                continue;
+            }
+
+            // Own every string so the item list outlives the `tasks` borrow
+            // (the mutable lane state is borrowed again at render time).
+            let lane_items: Vec<ListItem> = {
+                let tasks = &app.projects[app.selected_project_index.selected().unwrap()].tasks;
+
+                indices
+                    .iter()
+                    .map(|&i| ListItem::new(Line::from(Task::repr_spans(&tasks[i], false))))
+                    .collect()
+            };
+
+            let list = List::new(lane_items)
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_symbol("> ")
+                .highlight_spacing(HighlightSpacing::Always)
+                .block(lane_block);
+
+            f.render_stateful_widget(list, columns[lane], &mut app.board_lane_states[lane]);
         }
     }
 
@@ -428,8 +511,27 @@ impl View {
                 ("h", "help"),
                 ("q", "quit"),
             ],
+            ViewMode::ViewTasks if app.board_view => &[
+                ("↑ ↓  k j", "next/prev in lane"),
+                ("← →", "switch lane"),
+                ("b", "list view"),
+                ("Esc", "back"),
+                ("Enter", "change status"),
+                ("p", "change priority"),
+                ("n", "new"),
+                ("r", "rename"),
+                ("v", "details"),
+                ("e", "note"),
+                ("v → g", "details: edit estimate"),
+                ("d", "delete"),
+                ("s", "stopwatch timer"),
+                ("c", "pomodoro timer"),
+                ("h", "help"),
+                ("q", "quit"),
+            ],
             ViewMode::ViewTasks => &[
                 ("↑ ↓  k j", "next/prev"),
+                ("b", "board view"),
                 ("Esc  ←", "back"),
                 ("Enter", "change status"),
                 ("p", "change priority"),
@@ -476,6 +578,58 @@ impl View {
             .wrap(Wrap { trim: true })
             .block(Block::bordered().title(" Help "));
 
-        Ui::create_modal(f, 42, 19, area, widget)
+        // Sized with a little headroom above the longest binding list
+        Ui::create_modal(f, 42, 23, area, widget)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        project::Project,
+        task::{TASK_PRIORITY_NONE, TASK_STATUS_DONE, TASK_STATUS_ON_GOING, TASK_STATUS_UP_NEXT},
+        test_utils::{make_app, make_task},
+    };
+    use ratatui::{backend::TestBackend, Terminal};
+
+    /// Rendering must not panic on any lane composition (all lanes filled,
+    /// some empty, board narrower than the content).
+    #[test]
+    fn show_board_renders_without_panicking() {
+        for (width, height) in [(120, 30), (60, 20), (30, 10), (12, 4)] {
+            let mut app = make_app(vec![Project {
+                title: "p".to_string(),
+                tasks: vec![
+                    make_task("up-next", TASK_STATUS_UP_NEXT, 1),
+                    make_task("on-going", TASK_STATUS_ON_GOING, TASK_PRIORITY_NONE),
+                    make_task("done", TASK_STATUS_DONE, TASK_PRIORITY_NONE),
+                ],
+            }]);
+            app.board_view = true;
+            app.board_sync();
+
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|f| View::show_board(&mut app, f, f.size()))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn show_board_renders_empty_lanes_without_panicking() {
+        let mut app = make_app(vec![Project {
+            title: "p".to_string(),
+            tasks: vec![make_task("only", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE)],
+        }]);
+        app.board_view = true;
+        app.board_sync();
+
+        let backend = TestBackend::new(90, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| View::show_board(&mut app, f, f.size()))
+            .unwrap();
     }
 }

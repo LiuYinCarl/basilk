@@ -78,6 +78,8 @@ Press `h` to view the keybinding list in-app.
 | Key | Action |
 |---|---|
 | `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate tasks |
+| `←` `→` | Switch lane (board view) |
+| `b` | Toggle board / list view |
 | `Esc`  `←` | Back to project list |
 | `Enter` | Change task status |
 | `p` | Change task priority |
@@ -133,7 +135,9 @@ Tasks are displayed as `[Status] Title` with optional `[Priority]` prefix and, f
 - Statuses: **UpNext** (magenta), **OnGoing** (yellow), **Done** (green, ~~crossed out~~)
 - Priorities: `!` (highest), `!!` (high), `!!!` (low)
 
-Completed tasks are **hidden by default**. Press `t` in the task list view to toggle their visibility.
+Completed tasks are **hidden by default** in the task list view. Press `t` to toggle their visibility.
+
+Press `b` in the task list view to switch to a kanban **board view**: three vertical lanes (**Up Next** / **On Going** / **Done**), each titled with its task count, the focused lane highlighted in its status color. Use `←`/`→` to move between lanes and `↑`/`↓` to select a task within a lane; every other shortcut (`v` details, `Enter` status, `p` priority, timers, …) works the same, and changing a task's status moves it to the matching lane. The board always shows the Done lane, regardless of the `t` setting (which is a no-op while the board is active).
 
 ## Contributing
 > [!NOTE]  

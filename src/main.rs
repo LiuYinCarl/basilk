@@ -71,6 +71,13 @@ pub struct App {
     projects: Vec<Project>,
     hide_done_tasks: bool,
     timer: Option<TimerState>,
+    /// When true, the task view renders as a three-lane kanban board
+    /// (Up Next / On Going / Done) instead of the classic list.
+    board_view: bool,
+    /// Currently focused board lane: index into `TASK_STATUSES`.
+    board_lane: usize,
+    /// Per-lane selection/scroll state for the board view.
+    board_lane_states: [ListState; 3],
 }
 
 fn init_terminal() -> Result<Terminal<impl Backend>, Box<dyn Error>> {
@@ -117,6 +124,13 @@ impl App {
             projects: Json::read(),
             hide_done_tasks: true,
             timer: None,
+            board_view: false,
+            board_lane: 0,
+            board_lane_states: [
+                ListState::default().with_selected(Some(0)),
+                ListState::default().with_selected(Some(0)),
+                ListState::default().with_selected(Some(0)),
+            ],
         }
     }
 
@@ -174,6 +188,12 @@ impl App {
 
                                     Task::load_items(self, &mut items);
                                     self.selected_task_index.select(Some(0));
+
+                                    // The sync inside `load_items` ran before the
+                                    // selection was reset to the top
+                                    if self.board_view {
+                                        self.board_sync();
+                                    }
 
                                     App::change_view(self, ViewMode::ViewTasks);
                                 }
@@ -295,130 +315,177 @@ impl App {
                                 }
                             }
 
-                            ViewMode::ViewTasks => match key.code {
-                                Char('h') => {
-                                    self.previous_view_mode = ViewMode::ViewTasks;
-                                    App::change_view(self, ViewMode::ViewHelp);
-                                }
-                                Esc | Left => {
-                                    Project::load_items(self, &mut items);
+                            ViewMode::ViewTasks => {
+                                // In board mode the focused lane (not the list) decides
+                                // whether task actions are available: the list can be
+                                // empty only because done tasks are hidden, while the
+                                // Done lane still shows them.
+                                let no_current_task = if self.board_view {
+                                    self.board_lane_is_empty()
+                                } else {
+                                    items.is_empty()
+                                };
 
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                                Enter => {
-                                    if items.is_empty() {
-                                        continue;
+                                match key.code {
+                                    Char('h') => {
+                                        self.previous_view_mode = ViewMode::ViewTasks;
+                                        App::change_view(self, ViewMode::ViewHelp);
                                     }
+                                    Esc => {
+                                        Project::load_items(self, &mut items);
 
-                                    let index = TASK_STATUSES
-                                        .into_iter()
-                                        .position(|t| t == &Task::get_current(self).status)
-                                        .unwrap();
-
-                                    self.selected_status_task_index.select(Some(index));
-
-                                    App::change_view(self, ViewMode::ChangeStatusTask);
-                                }
-                                Char('p') => {
-                                    if items.is_empty() {
-                                        continue;
+                                        App::change_view(self, ViewMode::ViewProjects);
                                     }
+                                    Left => {
+                                        if self.board_view {
+                                            self.board_switch_lane(false);
+                                        } else {
+                                            Project::load_items(self, &mut items);
 
-                                    let index = TASK_PRIORITIES
-                                        .into_iter()
-                                        .position(|t| t == Task::get_current(self).priority)
-                                        .unwrap();
-
-                                    self.selected_priority_task_index.select(Some(index));
-
-                                    App::change_view(self, ViewMode::ChangePriorityTask);
-                                }
-                                Char('r') => {
-                                    if items.is_empty() {
-                                        continue;
+                                            App::change_view(self, ViewMode::ViewProjects);
+                                        }
                                     }
-
-                                    input = input
-                                        .clone()
-                                        .with_value(Task::get_current(self).title.clone());
-
-                                    App::change_view(self, ViewMode::RenameTask);
-                                }
-                                Char('n') => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::AddTask);
-                                }
-                                Char('d') => {
-                                    if items.is_empty() {
-                                        continue;
+                                    Right => {
+                                        if self.board_view {
+                                            self.board_switch_lane(true);
+                                        }
                                     }
+                                    Char('b') => {
+                                        self.board_view = !self.board_view;
 
-                                    App::change_view(self, ViewMode::DeleteTask);
-                                }
-                                Char('v') => {
-                                    if items.is_empty() {
-                                        continue;
+                                        // Rebuild the item list: the board shows
+                                        // done tasks, the list view may hide them.
+                                        // When toggling on, `load_items` also
+                                        // re-syncs the board focus.
+                                        Task::load_items(self, &mut items);
                                     }
+                                    Enter => {
+                                        if no_current_task {
+                                            continue;
+                                        }
 
-                                    App::change_view(self, ViewMode::ViewTaskDetails);
-                                }
-                                Char('e') => {
-                                    if items.is_empty() {
-                                        continue;
+                                        let index = TASK_STATUSES
+                                            .into_iter()
+                                            .position(|t| t == &Task::get_current(self).status)
+                                            .unwrap();
+
+                                        self.selected_status_task_index.select(Some(index));
+
+                                        App::change_view(self, ViewMode::ChangeStatusTask);
                                     }
+                                    Char('p') => {
+                                        if no_current_task {
+                                            continue;
+                                        }
 
-                                    input = input
-                                        .clone()
-                                        .with_value(Task::get_current(self).note.clone());
+                                        let index = TASK_PRIORITIES
+                                            .into_iter()
+                                            .position(|t| t == Task::get_current(self).priority)
+                                            .unwrap();
 
-                                    App::change_view(self, ViewMode::EditTaskNote);
-                                }
-                                Down | Tab | Char('j') => {
-                                    self.next(&items);
-                                }
-                                Up | BackTab | Char('k') => {
-                                    self.previous(&items);
-                                }
-                                Char('t') => {
-                                    self.hide_done_tasks = !self.hide_done_tasks;
-                                    Task::load_items(self, &mut items);
-                                }
-                                Char('s') => {
-                                    self.previous_view_mode = ViewMode::ViewTasks;
+                                        self.selected_priority_task_index.select(Some(index));
 
-                                    if self.timer.is_some() {
-                                        App::change_view(self, ViewMode::TimerTask);
-                                    } else if !items.is_empty() {
-                                        let project_index =
-                                            self.selected_project_index.selected().unwrap();
-                                        let task_title = Task::get_current(self).title.clone();
-
-                                        self.timer = Some(TimerState::new_stopwatch(
-                                            project_index,
-                                            task_title,
-                                        ));
-
-                                        App::change_view(self, ViewMode::TimerTask);
+                                        App::change_view(self, ViewMode::ChangePriorityTask);
                                     }
-                                }
-                                Char('c') => {
-                                    self.previous_view_mode = ViewMode::ViewTasks;
+                                    Char('r') => {
+                                        if no_current_task {
+                                            continue;
+                                        }
 
-                                    if self.timer.is_some() {
-                                        App::change_view(self, ViewMode::TimerTask);
-                                    } else {
+                                        input = input
+                                            .clone()
+                                            .with_value(Task::get_current(self).title.clone());
+
+                                        App::change_view(self, ViewMode::RenameTask);
+                                    }
+                                    Char('n') => {
                                         input.reset();
 
-                                        App::change_view(self, ViewMode::SetCountdown);
+                                        App::change_view(self, ViewMode::AddTask);
                                     }
+                                    Char('d') => {
+                                        if no_current_task {
+                                            continue;
+                                        }
+
+                                        App::change_view(self, ViewMode::DeleteTask);
+                                    }
+                                    Char('v') => {
+                                        if no_current_task {
+                                            continue;
+                                        }
+
+                                        App::change_view(self, ViewMode::ViewTaskDetails);
+                                    }
+                                    Char('e') => {
+                                        if no_current_task {
+                                            continue;
+                                        }
+
+                                        input = input
+                                            .clone()
+                                            .with_value(Task::get_current(self).note.clone());
+
+                                        App::change_view(self, ViewMode::EditTaskNote);
+                                    }
+                                    Down | Tab | Char('j') => {
+                                        if self.board_view {
+                                            self.board_move(true);
+                                        } else {
+                                            self.next(&items);
+                                        }
+                                    }
+                                    Up | BackTab | Char('k') => {
+                                        if self.board_view {
+                                            self.board_move(false);
+                                        } else {
+                                            self.previous(&items);
+                                        }
+                                    }
+                                    Char('t') => {
+                                        // The board always shows the Done lane, so there
+                                        // is nothing to toggle while it is active
+                                        if !self.board_view {
+                                            self.hide_done_tasks = !self.hide_done_tasks;
+                                            Task::load_items(self, &mut items);
+                                        }
+                                    }
+                                    Char('s') => {
+                                        self.previous_view_mode = ViewMode::ViewTasks;
+
+                                        if self.timer.is_some() {
+                                            App::change_view(self, ViewMode::TimerTask);
+                                        } else if !no_current_task {
+                                            let project_index =
+                                                self.selected_project_index.selected().unwrap();
+                                            let task_title = Task::get_current(self).title.clone();
+
+                                            self.timer = Some(TimerState::new_stopwatch(
+                                                project_index,
+                                                task_title,
+                                            ));
+
+                                            App::change_view(self, ViewMode::TimerTask);
+                                        }
+                                    }
+                                    Char('c') => {
+                                        self.previous_view_mode = ViewMode::ViewTasks;
+
+                                        if self.timer.is_some() {
+                                            App::change_view(self, ViewMode::TimerTask);
+                                        } else {
+                                            input.reset();
+
+                                            App::change_view(self, ViewMode::SetCountdown);
+                                        }
+                                    }
+                                    Char('q') => {
+                                        self.settle_timer();
+                                        return Ok(());
+                                    }
+                                    _ => {}
                                 }
-                                Char('q') => {
-                                    self.settle_timer();
-                                    return Ok(());
-                                }
-                                _ => {}
-                            },
+                            }
                             ViewMode::RenameTask => match key.code {
                                 Enter => {
                                     let project_index =
@@ -524,8 +591,7 @@ impl App {
                                             self.timer = None;
                                         }
 
-                                        Task::delete(self, &mut items);
-                                        self.selected_task_index.select_previous();
+                                        self.delete_current_task(&mut items);
                                     }
                                     self.delete_confirm_index.select(Some(0));
                                     App::change_view(self, ViewMode::ViewTasks);
@@ -851,6 +917,115 @@ impl App {
         self.use_state().select(Some(i))
     }
 
+    /// Delete the selected task, move the selection to the previous one,
+    /// and keep the board focus consistent with the action target
+    /// (`select_previous` runs after the sync inside `Task::load_items`,
+    /// so the board must be re-synced afterwards).
+    fn delete_current_task(&mut self, items: &mut Vec<ListItem>) {
+        Task::delete(self, items);
+        self.selected_task_index.select_previous();
+
+        if self.board_view {
+            self.board_sync();
+        }
+    }
+
+    /// Number of tasks in a board lane.
+    fn board_lane_len(&self, lane: usize) -> usize {
+        Task::lane_indices(self, TASK_STATUSES[lane]).len()
+    }
+
+    /// Whether the currently focused board lane has no tasks.
+    fn board_lane_is_empty(&self) -> bool {
+        self.board_lane_len(self.board_lane) == 0
+    }
+
+    /// Derive the focused lane and the per-lane selection from
+    /// `selected_task_index`. Called at the end of `Task::load_items`
+    /// while the board is active, so the board follows a task that
+    /// changed lane (status change), and when the board view is
+    /// (re)entered.
+    fn board_sync(&mut self) {
+        let Some(selected) = self.selected_task_index.selected() else {
+            return;
+        };
+        let Some(project) = self
+            .projects
+            .get(self.selected_project_index.selected().unwrap_or(0))
+        else {
+            return;
+        };
+        let Some(task) = project.tasks.get(selected) else {
+            return;
+        };
+        let Some(lane) = TASK_STATUSES.into_iter().position(|s| s == task.status) else {
+            return;
+        };
+
+        self.board_lane = lane;
+
+        let row = Task::lane_indices(self, TASK_STATUSES[lane])
+            .iter()
+            .position(|&i| i == selected)
+            .unwrap_or(0);
+        self.board_lane_states[lane].select(Some(row));
+    }
+
+    /// Focus the previous/next board lane (wrapping) and move the task
+    /// selection to the remembered row of that lane. Switching to an
+    /// empty lane only moves the focus; task actions are guarded by
+    /// `board_lane_is_empty`.
+    fn board_switch_lane(&mut self, forward: bool) {
+        let lane_count = TASK_STATUSES.len();
+        let lane = if forward {
+            (self.board_lane + 1) % lane_count
+        } else {
+            (self.board_lane + lane_count - 1) % lane_count
+        };
+        self.board_lane = lane;
+
+        let indices = Task::lane_indices(self, TASK_STATUSES[lane]);
+        if indices.is_empty() {
+            return;
+        }
+
+        let row = self.board_lane_states[lane]
+            .selected()
+            .unwrap_or(0)
+            .min(indices.len() - 1);
+        self.board_lane_states[lane].select(Some(row));
+        self.selected_task_index.select(Some(indices[row]));
+    }
+
+    /// Move the selection one row up/down within the focused lane
+    /// (wrapping), keeping `selected_task_index` pointed at the same task.
+    fn board_move(&mut self, down: bool) {
+        let lane = self.board_lane;
+        let indices = Task::lane_indices(self, TASK_STATUSES[lane]);
+        if indices.is_empty() {
+            return;
+        }
+
+        let row = self.board_lane_states[lane]
+            .selected()
+            .unwrap_or(0)
+            .min(indices.len() - 1);
+        let row = if down {
+            if row >= indices.len() - 1 {
+                0
+            } else {
+                row + 1
+            }
+        } else if row == 0 {
+            indices.len() - 1
+        } else {
+            row - 1
+        };
+
+        self.board_lane_states[lane].select(Some(row));
+        self.selected_task_index.select(Some(indices[row]));
+    }
+
     fn use_state(&mut self) -> &mut ListState {
         match self.view_mode {
             ViewMode::ViewProjects => return &mut self.selected_project_index,
@@ -988,6 +1163,13 @@ pub(crate) mod test_utils {
             projects,
             hide_done_tasks: true,
             timer: None,
+            board_view: false,
+            board_lane: 0,
+            board_lane_states: [
+                ListState::default().with_selected(Some(0)),
+                ListState::default().with_selected(Some(0)),
+                ListState::default().with_selected(Some(0)),
+            ],
         }
     }
 
@@ -1089,5 +1271,160 @@ mod tests {
             &a.delete_confirm_index
         });
         assert_state(&mut app, ViewMode::DeleteTask, |a| &a.delete_confirm_index);
+    }
+
+    mod board {
+        use super::*;
+        use crate::task::{
+            TASK_PRIORITY_NONE, TASK_STATUS_DONE, TASK_STATUS_ON_GOING, TASK_STATUS_UP_NEXT,
+        };
+        use test_utils::{make_task, setup_temp_config, ENV_LOCK};
+
+        fn board_app() -> App {
+            make_app(vec![Project {
+                title: "p".to_string(),
+                tasks: vec![
+                    make_task("ongoing", TASK_STATUS_ON_GOING, TASK_PRIORITY_NONE),
+                    make_task("upnext", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                    make_task("done", TASK_STATUS_DONE, TASK_PRIORITY_NONE),
+                ],
+            }])
+        }
+
+        #[test]
+        fn board_sync_focuses_the_lane_of_the_selected_task() {
+            let mut app = board_app();
+            app.selected_task_index.select(Some(0)); // "ongoing"
+
+            app.board_sync();
+
+            // TASK_STATUSES order: UpNext = 0, OnGoing = 1, Done = 2
+            assert_eq!(app.board_lane, 1);
+            assert_eq!(app.board_lane_states[1].selected(), Some(0));
+        }
+
+        #[test]
+        fn board_sync_follows_a_task_that_changed_lane() {
+            let mut app = board_app();
+            app.board_view = true;
+            app.selected_task_index.select(Some(0));
+            app.projects[0].tasks[0].status = TASK_STATUS_DONE.to_string();
+
+            let mut items = vec![];
+            Task::load_items(&mut app, &mut items);
+
+            // The selection follows the task into the Done lane instead of
+            // jumping to the first still-visible list item
+            assert_eq!(Task::get_current(&mut app).title, "ongoing");
+            assert_eq!(app.board_lane, 2);
+            assert_eq!(app.selected_task_index.selected(), Some(1));
+            assert_eq!(app.board_lane_states[2].selected(), Some(0));
+        }
+
+        #[test]
+        fn lane_indices_groups_by_status_and_ignores_hide_done() {
+            let app = board_app();
+            assert!(app.hide_done_tasks);
+
+            assert_eq!(Task::lane_indices(&app, TASK_STATUS_UP_NEXT), vec![1]);
+            assert_eq!(Task::lane_indices(&app, TASK_STATUS_ON_GOING), vec![0]);
+            assert_eq!(Task::lane_indices(&app, TASK_STATUS_DONE), vec![2]);
+        }
+
+        #[test]
+        fn board_switch_lane_wraps_and_moves_the_task_selection() {
+            let mut app = board_app();
+            app.selected_task_index.select(Some(0));
+            app.board_sync(); // lane 1 (OnGoing)
+
+            app.board_switch_lane(true); // lane 2 (Done)
+            assert_eq!(app.board_lane, 2);
+            assert_eq!(app.selected_task_index.selected(), Some(2));
+
+            app.board_switch_lane(true); // wraps to lane 0 (UpNext)
+            assert_eq!(app.board_lane, 0);
+            assert_eq!(app.selected_task_index.selected(), Some(1));
+
+            app.board_switch_lane(false); // back to lane 2 (Done)
+            assert_eq!(app.board_lane, 2);
+            assert_eq!(app.selected_task_index.selected(), Some(2));
+        }
+
+        #[test]
+        fn board_switch_lane_into_an_empty_lane_keeps_the_task_selection() {
+            let mut app = board_app();
+            app.projects[0]
+                .tasks
+                .retain(|t| t.status != TASK_STATUS_ON_GOING);
+            app.selected_task_index.select(Some(0)); // "upnext"
+            app.board_sync();
+            assert_eq!(app.board_lane, 0);
+
+            app.board_switch_lane(true); // OnGoing lane, now empty
+
+            assert_eq!(app.board_lane, 1);
+            assert!(app.board_lane_is_empty());
+            assert_eq!(app.selected_task_index.selected(), Some(0));
+        }
+
+        #[test]
+        fn board_move_wraps_within_the_lane() {
+            let mut app = make_app(vec![Project {
+                title: "p".to_string(),
+                tasks: vec![
+                    make_task("a", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                    make_task("b", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                ],
+            }]);
+            app.selected_task_index.select(Some(0));
+            app.board_sync();
+
+            app.board_move(true);
+            assert_eq!(app.selected_task_index.selected(), Some(1));
+
+            app.board_move(true); // wraps to the top
+            assert_eq!(app.selected_task_index.selected(), Some(0));
+
+            app.board_move(false); // wraps to the bottom
+            assert_eq!(app.selected_task_index.selected(), Some(1));
+        }
+
+        /// Regression test: deleting a task in board mode used to leave the
+        /// board focus on the deleted task's successor while
+        /// `selected_task_index` (the action target) moved to the
+        /// predecessor — the two must agree after the delete sequence.
+        #[test]
+        fn delete_in_board_mode_keeps_focus_and_action_target_consistent() {
+            let _guard = ENV_LOCK.lock().unwrap();
+            let _dir = setup_temp_config();
+            let mut app = make_app(vec![Project {
+                title: "p".to_string(),
+                tasks: vec![
+                    make_task("a", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                    make_task("b", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                    make_task("c", TASK_STATUS_ON_GOING, TASK_PRIORITY_NONE),
+                ],
+            }]);
+            app.board_view = true;
+
+            let mut items = vec![];
+            Task::load_items(&mut app, &mut items); // sorted: [c, a, b]
+            app.selected_task_index.select(Some(1)); // "a"
+            app.board_sync();
+            assert_eq!(Task::get_current(&mut app).title, "a");
+
+            // Exercise the same code path as the DeleteTask handler
+            app.delete_current_task(&mut items);
+
+            assert_eq!(Task::get_current(&mut app).title, "c");
+            let lane = app.board_lane;
+            let row = app.board_lane_states[lane].selected().unwrap();
+            let lane_indices = Task::lane_indices(&app, TASK_STATUSES[lane]);
+            assert_eq!(
+                lane_indices.get(row).copied(),
+                app.selected_task_index.selected(),
+                "board focus and action target diverged"
+            );
+        }
     }
 }

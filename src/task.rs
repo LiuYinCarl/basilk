@@ -123,50 +123,87 @@ impl Task {
 
         let mut visible_selected = 0;
         for (full_idx, task) in tasks.iter().enumerate() {
-            if app.hide_done_tasks && task.status == TASK_STATUS_DONE {
+            // The board always shows the Done lane, so its item list is the
+            // full sorted list and visible indices match full-list indices
+            if app.hide_done_tasks && !app.board_view && task.status == TASK_STATUS_DONE {
                 continue;
             }
             if full_idx == new_index {
                 visible_selected = items.len();
             }
-            let modifier = if task.status == TASK_STATUS_DONE {
-                Modifier::CROSSED_OUT
-            } else {
-                Modifier::empty()
-            };
 
-            let mut repr = vec![
-                Span::styled(
-                    format!("[{}] ", task.status),
-                    Style::default()
-                        .fg(Task::get_status_color(&task.status))
-                        .add_modifier(modifier),
-                ),
-                Span::styled(task.title.clone(), Style::default().add_modifier(modifier)),
-            ];
-
-            if task.priority != TASK_PRIORITY_NONE {
-                let priority_repr = vec![Span::styled(
-                    format!("[{}] ", Util::get_priority_indicator(task.priority)),
-                    Style::new().fg(Color::Red),
-                )];
-                repr = [priority_repr, repr].concat()
-            }
-
-            // Estimate progress for tasks with an estimated duration
-            if let Some(pct) = task.estimate_progress(0) {
-                repr.push(Span::styled(
-                    format!(" [{}%]", pct),
-                    Style::default().fg(if pct >= 100 { Color::Red } else { Color::Cyan }),
-                ));
-            }
-
-            let line = Line::from(repr);
-
-            items.push(ListItem::from(line))
+            items.push(ListItem::from(Line::from(Task::repr_spans(task, true))))
         }
 
-        app.selected_task_index.select(Some(visible_selected))
+        app.selected_task_index.select(Some(visible_selected));
+
+        // Keep the board view consistent after any mutation: the selected
+        // task may have changed lane (status change) or disappeared.
+        // List mode is skipped on purpose: its selection is a *visible*
+        // index, which only matches the full-list index the board
+        // reasons in while done tasks sort last.
+        if app.board_view {
+            app.board_sync();
+        }
+    }
+
+    /// Spans rendering one task line: `[!]` priority prefix (if any),
+    /// `[status]` prefix (list view only — the board lane already conveys
+    /// the status), the title (crossed out when done), and the `[x%]`
+    /// estimate-progress suffix (when an estimate is set). Shared by the
+    /// list and board views so the two renderings cannot drift apart.
+    pub fn repr_spans(task: &Task, with_status: bool) -> Vec<Span<'static>> {
+        let modifier = if task.status == TASK_STATUS_DONE {
+            Modifier::CROSSED_OUT
+        } else {
+            Modifier::empty()
+        };
+
+        let mut repr = vec![];
+
+        if task.priority != TASK_PRIORITY_NONE {
+            repr.push(Span::styled(
+                format!("[{}] ", Util::get_priority_indicator(task.priority)),
+                Style::new().fg(Color::Red),
+            ));
+        }
+
+        if with_status {
+            repr.push(Span::styled(
+                format!("[{}] ", task.status),
+                Style::default()
+                    .fg(Task::get_status_color(&task.status))
+                    .add_modifier(modifier),
+            ));
+        }
+
+        repr.push(Span::styled(
+            task.title.clone(),
+            Style::default().add_modifier(modifier),
+        ));
+
+        // Estimate progress for tasks with an estimated duration
+        if let Some(pct) = task.estimate_progress(0) {
+            repr.push(Span::styled(
+                format!(" [{}%]", pct),
+                Style::default().fg(if pct >= 100 { Color::Red } else { Color::Cyan }),
+            ));
+        }
+
+        repr
+    }
+
+    /// Full-list indices of the tasks in a status lane, in display (sorted)
+    /// order. The board always shows every lane, so `hide_done_tasks` is
+    /// deliberately not applied here.
+    pub fn lane_indices(app: &App, status: &str) -> Vec<usize> {
+        app.projects[app.selected_project_index.selected().unwrap()]
+            .tasks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.status == status)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     pub fn get_current(app: &mut App) -> &Task {

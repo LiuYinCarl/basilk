@@ -94,6 +94,7 @@ proptest! {
     fn task_load_items_never_panics_and_selects_a_valid_index(
         tasks in prop::collection::vec(arb_task(), 0..8),
         hide_done in any::<bool>(),
+        board_view in any::<bool>(),
         selected in any::<usize>(),
     ) {
         let mut app = make_app(vec![Project {
@@ -101,15 +102,17 @@ proptest! {
             tasks,
         }]);
         app.hide_done_tasks = hide_done;
+        app.board_view = board_view;
         app.selected_task_index.select(Some(selected));
         let mut items = vec![];
 
         Task::load_items(&mut app, &mut items);
 
+        // The board always shows the Done lane, ignoring `hide_done_tasks`
         let expected_visible = app.projects[0]
             .tasks
             .iter()
-            .filter(|t| !(hide_done && t.status == TASK_STATUS_DONE))
+            .filter(|t| !(!board_view && hide_done && t.status == TASK_STATUS_DONE))
             .count();
         prop_assert_eq!(items.len(), expected_visible);
         if !items.is_empty() {
