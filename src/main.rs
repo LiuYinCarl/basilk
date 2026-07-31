@@ -8,7 +8,7 @@ use std::{
 use cli::Cli;
 use ratatui::{
     crossterm::{
-        event::{self, Event, KeyCode, KeyEventKind},
+        event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
@@ -78,6 +78,19 @@ pub struct App {
     board_lane: usize,
     /// Per-lane selection/scroll state for the board view.
     board_lane_states: [ListState; 3],
+}
+
+/// What the event loop should do after a key press was handled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyAction {
+    /// No special action; continue the loop normally.
+    None,
+    /// Skip the rest of this iteration (mirrors the previous `continue`
+    /// inside the event loop: modal navigation and empty-list guards
+    /// redraw on the next iteration without ticking the timer).
+    Skip,
+    /// Quit the application; the caller settles the timer.
+    Quit,
 }
 
 fn init_terminal() -> Result<Terminal<impl Backend>, Box<dyn Error>> {
@@ -174,566 +187,20 @@ impl App {
                 if let Event::Key(key) = event::read()? {
                     // Capture only the "Press" event to prevent double input on Windows
                     if key.kind == KeyEventKind::Press {
-                        use KeyCode::*;
-                        match self.view_mode {
-                            ViewMode::ViewProjects => match key.code {
-                                Char('h') => {
-                                    self.previous_view_mode = ViewMode::ViewProjects;
-                                    App::change_view(self, ViewMode::ViewHelp);
-                                }
-                                Enter | Right | Char('l') => {
-                                    if items.is_empty() {
-                                        continue;
-                                    }
-
-                                    Task::load_items(self, &mut items);
-                                    self.selected_task_index.select(Some(0));
-
-                                    // The sync inside `load_items` ran before the
-                                    // selection was reset to the top
-                                    if self.board_view {
-                                        self.board_sync();
-                                    }
-
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                                Char('r') => {
-                                    if items.is_empty() {
-                                        continue;
-                                    }
-
-                                    input = input
-                                        .clone()
-                                        .with_value(Project::get_current(self).title.clone());
-
-                                    App::change_view(self, ViewMode::RenameProject);
-                                }
-                                Char('n') => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::AddProject);
-                                }
-                                Char('d') => {
-                                    if items.is_empty() {
-                                        continue;
-                                    }
-
-                                    App::change_view(self, ViewMode::DeleteProject);
-                                }
-                                Down | Tab | Char('j') => {
-                                    self.next(&items);
-                                }
-                                Up | BackTab | Char('k') => {
-                                    self.previous(&items);
-                                }
-                                Char('c') => {
-                                    self.previous_view_mode = ViewMode::ViewProjects;
-
-                                    if self.timer.is_some() {
-                                        App::change_view(self, ViewMode::TimerTask);
-                                    } else {
-                                        input.reset();
-
-                                        App::change_view(self, ViewMode::SetCountdown);
-                                    }
-                                }
-                                Char('q') => {
-                                    self.settle_timer();
-                                    return Ok(());
-                                }
-                                _ => {}
-                            },
-                            ViewMode::RenameProject => match key.code {
-                                Enter => {
-                                    Project::rename(self, &mut items, input.value());
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                                Esc => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::AddProject => match key.code {
-                                Esc => {
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                                Enter => {
-                                    if !input.value().is_empty() {
-                                        Project::create(self, &mut items, input.value());
-                                        self.selected_project_index
-                                            .select(Some(self.projects.len() - 1));
-                                    }
-
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::DeleteProject => {
-                                if self.handle_modal_nav(
-                                    key.code,
-                                    &delete_confirm_items,
-                                    ViewMode::ViewProjects,
-                                ) {
-                                    continue;
-                                }
-                                if key.code == Enter {
-                                    if self.delete_confirm_index.selected() == Some(0) {
-                                        let deleted_index =
-                                            self.selected_project_index.selected().unwrap();
-
-                                        Project::delete(self, &mut items);
-                                        self.selected_project_index.select_previous();
-
-                                        // Keep the timer binding consistent: a timer on the
-                                        // deleted project is dropped, later indexes shift down
-                                        let bound_index = self
-                                            .timer
-                                            .as_ref()
-                                            .and_then(|t| t.bound.as_ref())
-                                            .map(|b| b.project_index);
-
-                                        if bound_index == Some(deleted_index) {
-                                            self.timer = None;
-                                        } else if let Some(timer) = self.timer.as_mut() {
-                                            if let Some(bound) = timer.bound.as_mut() {
-                                                if bound.project_index > deleted_index {
-                                                    bound.project_index -= 1;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
+                        match self.handle_key(
+                            key,
+                            &mut input,
+                            &mut items,
+                            &status_items,
+                            &priority_items,
+                            &delete_confirm_items,
+                        ) {
+                            KeyAction::Quit => {
+                                self.settle_timer();
+                                return Ok(());
                             }
-
-                            ViewMode::ViewTasks => {
-                                // In board mode the focused lane (not the list) decides
-                                // whether task actions are available: the list can be
-                                // empty only because done tasks are hidden, while the
-                                // Done lane still shows them.
-                                let no_current_task = if self.board_view {
-                                    self.board_lane_is_empty()
-                                } else {
-                                    items.is_empty()
-                                };
-
-                                match key.code {
-                                    Char('h') => {
-                                        self.previous_view_mode = ViewMode::ViewTasks;
-                                        App::change_view(self, ViewMode::ViewHelp);
-                                    }
-                                    Esc => {
-                                        Project::load_items(self, &mut items);
-
-                                        App::change_view(self, ViewMode::ViewProjects);
-                                    }
-                                    Left => {
-                                        if self.board_view {
-                                            self.board_switch_lane(false);
-                                        } else {
-                                            Project::load_items(self, &mut items);
-
-                                            App::change_view(self, ViewMode::ViewProjects);
-                                        }
-                                    }
-                                    Right => {
-                                        if self.board_view {
-                                            self.board_switch_lane(true);
-                                        }
-                                    }
-                                    Char('b') => {
-                                        self.board_view = !self.board_view;
-
-                                        // Rebuild the item list: the board shows
-                                        // done tasks, the list view may hide them.
-                                        // When toggling on, `load_items` also
-                                        // re-syncs the board focus.
-                                        Task::load_items(self, &mut items);
-                                    }
-                                    Enter => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        let index = TASK_STATUSES
-                                            .into_iter()
-                                            .position(|t| t == &Task::get_current(self).status)
-                                            .unwrap();
-
-                                        self.selected_status_task_index.select(Some(index));
-
-                                        App::change_view(self, ViewMode::ChangeStatusTask);
-                                    }
-                                    Char('p') => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        let index = TASK_PRIORITIES
-                                            .into_iter()
-                                            .position(|t| t == Task::get_current(self).priority)
-                                            .unwrap();
-
-                                        self.selected_priority_task_index.select(Some(index));
-
-                                        App::change_view(self, ViewMode::ChangePriorityTask);
-                                    }
-                                    Char('r') => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        input = input
-                                            .clone()
-                                            .with_value(Task::get_current(self).title.clone());
-
-                                        App::change_view(self, ViewMode::RenameTask);
-                                    }
-                                    Char('n') => {
-                                        input.reset();
-
-                                        App::change_view(self, ViewMode::AddTask);
-                                    }
-                                    Char('d') => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        App::change_view(self, ViewMode::DeleteTask);
-                                    }
-                                    Char('v') => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        App::change_view(self, ViewMode::ViewTaskDetails);
-                                    }
-                                    Char('e') => {
-                                        if no_current_task {
-                                            continue;
-                                        }
-
-                                        input = input
-                                            .clone()
-                                            .with_value(Task::get_current(self).note.clone());
-
-                                        App::change_view(self, ViewMode::EditTaskNote);
-                                    }
-                                    Down | Tab | Char('j') => {
-                                        if self.board_view {
-                                            self.board_move(true);
-                                        } else {
-                                            self.next(&items);
-                                        }
-                                    }
-                                    Up | BackTab | Char('k') => {
-                                        if self.board_view {
-                                            self.board_move(false);
-                                        } else {
-                                            self.previous(&items);
-                                        }
-                                    }
-                                    Char('t') => {
-                                        // The board always shows the Done lane, so there
-                                        // is nothing to toggle while it is active
-                                        if !self.board_view {
-                                            self.hide_done_tasks = !self.hide_done_tasks;
-                                            Task::load_items(self, &mut items);
-                                        }
-                                    }
-                                    Char('s') => {
-                                        self.previous_view_mode = ViewMode::ViewTasks;
-
-                                        if self.timer.is_some() {
-                                            App::change_view(self, ViewMode::TimerTask);
-                                        } else if !no_current_task {
-                                            let project_index =
-                                                self.selected_project_index.selected().unwrap();
-                                            let task_title = Task::get_current(self).title.clone();
-
-                                            self.timer = Some(TimerState::new_stopwatch(
-                                                project_index,
-                                                task_title,
-                                            ));
-
-                                            App::change_view(self, ViewMode::TimerTask);
-                                        }
-                                    }
-                                    Char('c') => {
-                                        self.previous_view_mode = ViewMode::ViewTasks;
-
-                                        if self.timer.is_some() {
-                                            App::change_view(self, ViewMode::TimerTask);
-                                        } else {
-                                            input.reset();
-
-                                            App::change_view(self, ViewMode::SetCountdown);
-                                        }
-                                    }
-                                    Char('q') => {
-                                        self.settle_timer();
-                                        return Ok(());
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            ViewMode::RenameTask => match key.code {
-                                Enter => {
-                                    let project_index =
-                                        self.selected_project_index.selected().unwrap();
-                                    let old_title = Task::get_current(self).title.clone();
-                                    let new_title = input.value().to_string();
-
-                                    Task::rename(self, &mut items, &new_title);
-                                    input.reset();
-
-                                    // Keep a running timer bound to the renamed task
-                                    if let Some(timer) = self.timer.as_mut() {
-                                        if timer.is_bound_to(project_index, &old_title) {
-                                            if let Some(bound) = timer.bound.as_mut() {
-                                                bound.task_title = new_title;
-                                            }
-                                        }
-                                    }
-
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                                Esc => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::ChangeStatusTask => {
-                                if self.handle_modal_nav(
-                                    key.code,
-                                    &status_items,
-                                    ViewMode::ViewTasks,
-                                ) {
-                                    continue;
-                                }
-                                if key.code == Enter {
-                                    Task::change_status(
-                                        self,
-                                        &mut items,
-                                        TASK_STATUSES
-                                            [self.selected_status_task_index.selected().unwrap()],
-                                    );
-
-                                    self.selected_status_task_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                            }
-                            ViewMode::ChangePriorityTask => {
-                                if self.handle_modal_nav(
-                                    key.code,
-                                    &priority_items,
-                                    ViewMode::ViewTasks,
-                                ) {
-                                    continue;
-                                }
-                                if key.code == Enter {
-                                    Task::change_priority(
-                                        self,
-                                        &mut items,
-                                        TASK_PRIORITIES
-                                            [self.selected_priority_task_index.selected().unwrap()],
-                                    );
-
-                                    self.selected_priority_task_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                            }
-                            ViewMode::AddTask => match key.code {
-                                Enter => {
-                                    Task::create(self, &mut items, input.value());
-
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                                Esc => {
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::DeleteTask => {
-                                if self.handle_modal_nav(
-                                    key.code,
-                                    &delete_confirm_items,
-                                    ViewMode::ViewTasks,
-                                ) {
-                                    continue;
-                                }
-                                if key.code == Enter {
-                                    if self.delete_confirm_index.selected() == Some(0) {
-                                        // Drop a timer bound to the task being deleted
-                                        let project_index =
-                                            self.selected_project_index.selected().unwrap();
-                                        let task_title = Task::get_current(self).title.clone();
-                                        let bound = matches!(
-                                            self.timer.as_ref(),
-                                            Some(t) if t.is_bound_to(project_index, &task_title)
-                                        );
-                                        if bound {
-                                            self.timer = None;
-                                        }
-
-                                        self.delete_current_task(&mut items);
-                                    }
-                                    self.delete_confirm_index.select(Some(0));
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                            }
-                            ViewMode::ViewTaskDetails => match key.code {
-                                Char('e') => {
-                                    input = input
-                                        .clone()
-                                        .with_value(Task::get_current(self).note.clone());
-
-                                    App::change_view(self, ViewMode::EditTaskNote);
-                                }
-                                Char('g') => {
-                                    // Prefill the current estimate; an empty field
-                                    // is less friction than a "0" to delete first
-                                    let current = Task::get_current(self).estimated_hours;
-                                    input = input.clone().with_value(if current > 0 {
-                                        current.to_string()
-                                    } else {
-                                        String::new()
-                                    });
-
-                                    App::change_view(self, ViewMode::SetTaskEstimate);
-                                }
-                                _ => {
-                                    App::change_view(self, ViewMode::ViewTasks);
-                                }
-                            },
-                            ViewMode::EditTaskNote => match key.code {
-                                Enter => {
-                                    Task::update_note(self, &mut items, input.value());
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewTaskDetails);
-                                }
-                                Esc => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewTaskDetails);
-                                }
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::SetTaskEstimate => match key.code {
-                                Enter => {
-                                    let raw = input.value().trim().to_string();
-
-                                    if let Ok(hours) = raw.parse::<u64>() {
-                                        Task::update_estimate(self, &mut items, hours);
-                                        input.reset();
-
-                                        App::change_view(self, ViewMode::ViewTaskDetails);
-                                    } else if raw.is_empty() {
-                                        input.reset();
-
-                                        App::change_view(self, ViewMode::ViewTaskDetails);
-                                    }
-                                    // Invalid non-empty input: stay in the modal
-                                }
-                                Esc => {
-                                    input.reset();
-
-                                    App::change_view(self, ViewMode::ViewTaskDetails);
-                                }
-                                // Only digits make sense here
-                                Char(c) if !c.is_ascii_digit() => {}
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-                            ViewMode::TimerTask => {
-                                if self.timer.as_ref().is_some_and(TimerState::is_finished) {
-                                    // Finished countdown stays on screen; any key dismisses it
-                                    self.settle_timer();
-                                    self.back_to_previous_view();
-                                    continue;
-                                }
-
-                                match key.code {
-                                    Char(' ') => {
-                                        if let Some(timer) = self.timer.as_mut() {
-                                            if timer.is_running() {
-                                                timer.pause();
-                                            } else {
-                                                timer.resume();
-                                            }
-                                        }
-                                    }
-                                    Enter => {
-                                        self.settle_timer();
-                                        self.back_to_previous_view();
-                                    }
-                                    Esc => {
-                                        self.back_to_previous_view();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            ViewMode::SetCountdown => match key.code {
-                                Enter => {
-                                    let raw = input.value().trim().to_string();
-                                    let minutes = raw.parse::<f64>().unwrap_or(0.0);
-                                    let secs = (minutes * 60.0).round() as u64;
-
-                                    if secs > 0 {
-                                        input.reset();
-
-                                        self.timer = Some(TimerState::new_countdown(secs));
-
-                                        App::change_view(self, ViewMode::TimerTask);
-                                    } else if raw.is_empty() {
-                                        input.reset();
-
-                                        self.back_to_previous_view();
-                                    }
-                                    // Invalid non-empty input: stay in the modal
-                                }
-                                Esc => {
-                                    input.reset();
-
-                                    self.back_to_previous_view();
-                                }
-                                // Only digits and a decimal point make sense here
-                                Char(c) if !c.is_ascii_digit() && c != '.' => {}
-                                _ => {
-                                    input.handle_event(&Event::Key(key));
-                                }
-                            },
-
-                            ViewMode::ViewHelp => match key.code {
-                                _ => {
-                                    self.back_to_previous_view();
-                                }
-                            },
-
-                            ViewMode::InfoMigration => match key.code {
-                                _ => {
-                                    App::change_view(self, ViewMode::ViewProjects);
-                                }
-                            },
+                            KeyAction::Skip => continue,
+                            KeyAction::None => {}
                         }
                     }
                 }
@@ -741,6 +208,685 @@ impl App {
 
             self.tick_timer();
         }
+    }
+
+    /// Dispatch a pressed key to the handler of the current view mode.
+    ///
+    /// Each mode owns the keys it understands, so the event loop stays
+    /// shallow instead of nesting every binding in one giant `match`.
+    fn handle_key(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+        status_items: &Vec<ListItem>,
+        priority_items: &Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        match self.view_mode {
+            ViewMode::ViewProjects => self.handle_view_projects(key, input, items),
+            ViewMode::RenameProject => self.handle_rename_project(key, input, items),
+            ViewMode::AddProject => self.handle_add_project(key, input, items),
+            ViewMode::DeleteProject => self.handle_delete_project(key, items, delete_confirm_items),
+            ViewMode::ViewTasks => self.handle_view_tasks(key, input, items),
+            ViewMode::RenameTask => self.handle_rename_task(key, input, items),
+            ViewMode::ChangeStatusTask => self.handle_change_status_task(key, items, status_items),
+            ViewMode::ChangePriorityTask => {
+                self.handle_change_priority_task(key, items, priority_items)
+            }
+            ViewMode::AddTask => self.handle_add_task(key, input, items),
+            ViewMode::DeleteTask => self.handle_delete_task(key, items, delete_confirm_items),
+            ViewMode::ViewTaskDetails => self.handle_view_task_details(key, input),
+            ViewMode::EditTaskNote => self.handle_edit_task_note(key, input, items),
+            ViewMode::SetTaskEstimate => self.handle_set_task_estimate(key, input, items),
+            ViewMode::TimerTask => self.handle_timer_task(key),
+            ViewMode::SetCountdown => self.handle_set_countdown(key, input),
+            ViewMode::ViewHelp => {
+                self.back_to_previous_view();
+                KeyAction::None
+            }
+            ViewMode::InfoMigration => {
+                App::change_view(self, ViewMode::ViewProjects);
+                KeyAction::None
+            }
+        }
+    }
+
+    fn handle_view_projects(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Char('h') => {
+                self.previous_view_mode = ViewMode::ViewProjects;
+                App::change_view(self, ViewMode::ViewHelp);
+            }
+            Enter | Right | Char('l') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                Task::load_items(self, items);
+                self.selected_task_index.select(Some(0));
+
+                // The sync inside `load_items` ran before the
+                // selection was reset to the top
+                if self.board_view {
+                    self.board_sync();
+                }
+
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+            Char('r') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                *input = input
+                    .clone()
+                    .with_value(Project::get_current(self).title.clone());
+
+                App::change_view(self, ViewMode::RenameProject);
+            }
+            Char('n') => {
+                input.reset();
+
+                App::change_view(self, ViewMode::AddProject);
+            }
+            Char('d') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                App::change_view(self, ViewMode::DeleteProject);
+            }
+            Down | Tab | Char('j') => {
+                self.next(items);
+            }
+            Up | BackTab | Char('k') => {
+                self.previous(items);
+            }
+            Char('c') => {
+                self.previous_view_mode = ViewMode::ViewProjects;
+
+                if self.timer.is_some() {
+                    App::change_view(self, ViewMode::TimerTask);
+                } else {
+                    input.reset();
+
+                    App::change_view(self, ViewMode::SetCountdown);
+                }
+            }
+            Char('q') => {
+                return KeyAction::Quit;
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    fn handle_rename_project(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                Project::rename(self, items, input.value());
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_add_project(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Esc => {
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            Enter => {
+                if !input.value().is_empty() {
+                    Project::create(self, items, input.value());
+                    self.selected_project_index
+                        .select(Some(self.projects.len() - 1));
+                }
+
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_delete_project(
+        &mut self,
+        key: KeyEvent,
+        items: &mut Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        if self.handle_modal_nav(key.code, delete_confirm_items, ViewMode::ViewProjects) {
+            return KeyAction::Skip;
+        }
+        if key.code == KeyCode::Enter {
+            if self.delete_confirm_index.selected() == Some(0) {
+                let deleted_index = self.selected_project_index.selected().unwrap();
+
+                Project::delete(self, items);
+                self.selected_project_index.select_previous();
+
+                // Keep the timer binding consistent: a timer on the
+                // deleted project is dropped, later indexes shift down
+                let bound_index = self
+                    .timer
+                    .as_ref()
+                    .and_then(|t| t.bound.as_ref())
+                    .map(|b| b.project_index);
+
+                if bound_index == Some(deleted_index) {
+                    self.timer = None;
+                } else if let Some(timer) = self.timer.as_mut() {
+                    if let Some(bound) = timer.bound.as_mut() {
+                        if bound.project_index > deleted_index {
+                            bound.project_index -= 1;
+                        }
+                    }
+                }
+            }
+            self.delete_confirm_index.select(Some(0));
+            App::change_view(self, ViewMode::ViewProjects);
+        }
+        KeyAction::None
+    }
+
+    fn handle_view_tasks(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        // In board mode the focused lane (not the list) decides
+        // whether task actions are available: the list can be
+        // empty only because done tasks are hidden, while the
+        // Done lane still shows them.
+        let no_current_task = if self.board_view {
+            self.board_lane_is_empty()
+        } else {
+            items.is_empty()
+        };
+
+        match key.code {
+            Char('h') => {
+                self.previous_view_mode = ViewMode::ViewTasks;
+                App::change_view(self, ViewMode::ViewHelp);
+            }
+            Esc => {
+                Project::load_items(self, items);
+
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            Left => {
+                if self.board_view {
+                    self.board_switch_lane(false);
+                } else {
+                    Project::load_items(self, items);
+
+                    App::change_view(self, ViewMode::ViewProjects);
+                }
+            }
+            Right => {
+                if self.board_view {
+                    self.board_switch_lane(true);
+                }
+            }
+            Char('b') => {
+                self.board_view = !self.board_view;
+
+                // Rebuild the item list: the board shows
+                // done tasks, the list view may hide them.
+                // When toggling on, `load_items` also
+                // re-syncs the board focus.
+                Task::load_items(self, items);
+            }
+            Enter => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                let index = TASK_STATUSES
+                    .into_iter()
+                    .position(|t| t == &Task::get_current(self).status)
+                    .unwrap();
+
+                self.selected_status_task_index.select(Some(index));
+
+                App::change_view(self, ViewMode::ChangeStatusTask);
+            }
+            Char('p') => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                let index = TASK_PRIORITIES
+                    .into_iter()
+                    .position(|t| t == Task::get_current(self).priority)
+                    .unwrap();
+
+                self.selected_priority_task_index.select(Some(index));
+
+                App::change_view(self, ViewMode::ChangePriorityTask);
+            }
+            Char('r') => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                *input = input
+                    .clone()
+                    .with_value(Task::get_current(self).title.clone());
+
+                App::change_view(self, ViewMode::RenameTask);
+            }
+            Char('n') => {
+                input.reset();
+
+                App::change_view(self, ViewMode::AddTask);
+            }
+            Char('d') => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                App::change_view(self, ViewMode::DeleteTask);
+            }
+            Char('v') => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                App::change_view(self, ViewMode::ViewTaskDetails);
+            }
+            Char('e') => {
+                if no_current_task {
+                    return KeyAction::Skip;
+                }
+
+                *input = input
+                    .clone()
+                    .with_value(Task::get_current(self).note.clone());
+
+                App::change_view(self, ViewMode::EditTaskNote);
+            }
+            Down | Tab | Char('j') => {
+                if self.board_view {
+                    self.board_move(true);
+                } else {
+                    self.next(items);
+                }
+            }
+            Up | BackTab | Char('k') => {
+                if self.board_view {
+                    self.board_move(false);
+                } else {
+                    self.previous(items);
+                }
+            }
+            Char('t') => {
+                // The board always shows the Done lane, so there
+                // is nothing to toggle while it is active
+                if !self.board_view {
+                    self.hide_done_tasks = !self.hide_done_tasks;
+                    Task::load_items(self, items);
+                }
+            }
+            Char('s') => {
+                self.previous_view_mode = ViewMode::ViewTasks;
+
+                if self.timer.is_some() {
+                    App::change_view(self, ViewMode::TimerTask);
+                } else if !no_current_task {
+                    let project_index = self.selected_project_index.selected().unwrap();
+                    let task_title = Task::get_current(self).title.clone();
+
+                    self.timer = Some(TimerState::new_stopwatch(project_index, task_title));
+
+                    App::change_view(self, ViewMode::TimerTask);
+                }
+            }
+            Char('c') => {
+                self.previous_view_mode = ViewMode::ViewTasks;
+
+                if self.timer.is_some() {
+                    App::change_view(self, ViewMode::TimerTask);
+                } else {
+                    input.reset();
+
+                    App::change_view(self, ViewMode::SetCountdown);
+                }
+            }
+            Char('q') => {
+                return KeyAction::Quit;
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    fn handle_rename_task(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                let project_index = self.selected_project_index.selected().unwrap();
+                let old_title = Task::get_current(self).title.clone();
+                let new_title = input.value().to_string();
+
+                Task::rename(self, items, &new_title);
+                input.reset();
+
+                // Keep a running timer bound to the renamed task
+                if let Some(timer) = self.timer.as_mut() {
+                    if timer.is_bound_to(project_index, &old_title) {
+                        if let Some(bound) = timer.bound.as_mut() {
+                            bound.task_title = new_title;
+                        }
+                    }
+                }
+
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_change_status_task(
+        &mut self,
+        key: KeyEvent,
+        items: &mut Vec<ListItem>,
+        status_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        if self.handle_modal_nav(key.code, status_items, ViewMode::ViewTasks) {
+            return KeyAction::Skip;
+        }
+        if key.code == KeyCode::Enter {
+            Task::change_status(
+                self,
+                items,
+                TASK_STATUSES[self.selected_status_task_index.selected().unwrap()],
+            );
+
+            self.selected_status_task_index.select(Some(0));
+            App::change_view(self, ViewMode::ViewTasks);
+        }
+        KeyAction::None
+    }
+
+    fn handle_change_priority_task(
+        &mut self,
+        key: KeyEvent,
+        items: &mut Vec<ListItem>,
+        priority_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        if self.handle_modal_nav(key.code, priority_items, ViewMode::ViewTasks) {
+            return KeyAction::Skip;
+        }
+        if key.code == KeyCode::Enter {
+            Task::change_priority(
+                self,
+                items,
+                TASK_PRIORITIES[self.selected_priority_task_index.selected().unwrap()],
+            );
+
+            self.selected_priority_task_index.select(Some(0));
+            App::change_view(self, ViewMode::ViewTasks);
+        }
+        KeyAction::None
+    }
+
+    fn handle_add_task(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                Task::create(self, items, input.value());
+
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+            Esc => {
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_delete_task(
+        &mut self,
+        key: KeyEvent,
+        items: &mut Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        if self.handle_modal_nav(key.code, delete_confirm_items, ViewMode::ViewTasks) {
+            return KeyAction::Skip;
+        }
+        if key.code == KeyCode::Enter {
+            if self.delete_confirm_index.selected() == Some(0) {
+                // Drop a timer bound to the task being deleted
+                let project_index = self.selected_project_index.selected().unwrap();
+                let task_title = Task::get_current(self).title.clone();
+                let bound = matches!(
+                    self.timer.as_ref(),
+                    Some(t) if t.is_bound_to(project_index, &task_title)
+                );
+                if bound {
+                    self.timer = None;
+                }
+
+                self.delete_current_task(items);
+            }
+            self.delete_confirm_index.select(Some(0));
+            App::change_view(self, ViewMode::ViewTasks);
+        }
+        KeyAction::None
+    }
+
+    fn handle_view_task_details(&mut self, key: KeyEvent, input: &mut Input) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Char('e') => {
+                *input = input
+                    .clone()
+                    .with_value(Task::get_current(self).note.clone());
+
+                App::change_view(self, ViewMode::EditTaskNote);
+            }
+            Char('g') => {
+                // Prefill the current estimate; an empty field
+                // is less friction than a "0" to delete first
+                let current = Task::get_current(self).estimated_hours;
+                *input = input.clone().with_value(if current > 0 {
+                    current.to_string()
+                } else {
+                    String::new()
+                });
+
+                App::change_view(self, ViewMode::SetTaskEstimate);
+            }
+            _ => {
+                App::change_view(self, ViewMode::ViewTasks);
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_edit_task_note(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                Task::update_note(self, items, input.value());
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewTaskDetails);
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewTaskDetails);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_set_task_estimate(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                let raw = input.value().trim().to_string();
+
+                if let Ok(hours) = raw.parse::<u64>() {
+                    Task::update_estimate(self, items, hours);
+                    input.reset();
+
+                    App::change_view(self, ViewMode::ViewTaskDetails);
+                } else if raw.is_empty() {
+                    input.reset();
+
+                    App::change_view(self, ViewMode::ViewTaskDetails);
+                }
+                // Invalid non-empty input: stay in the modal
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewTaskDetails);
+            }
+            // Only digits make sense here
+            Char(c) if !c.is_ascii_digit() => {}
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_timer_task(&mut self, key: KeyEvent) -> KeyAction {
+        if self.timer.as_ref().is_some_and(TimerState::is_finished) {
+            // Finished countdown stays on screen; any key dismisses it
+            self.settle_timer();
+            self.back_to_previous_view();
+            return KeyAction::Skip;
+        }
+
+        use KeyCode::*;
+        match key.code {
+            Char(' ') => {
+                if let Some(timer) = self.timer.as_mut() {
+                    if timer.is_running() {
+                        timer.pause();
+                    } else {
+                        timer.resume();
+                    }
+                }
+            }
+            Enter => {
+                self.settle_timer();
+                self.back_to_previous_view();
+            }
+            Esc => {
+                self.back_to_previous_view();
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    fn handle_set_countdown(&mut self, key: KeyEvent, input: &mut Input) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                let raw = input.value().trim().to_string();
+                let minutes = raw.parse::<f64>().unwrap_or(0.0);
+                let secs = (minutes * 60.0).round() as u64;
+
+                if secs > 0 {
+                    input.reset();
+
+                    self.timer = Some(TimerState::new_countdown(secs));
+
+                    App::change_view(self, ViewMode::TimerTask);
+                } else if raw.is_empty() {
+                    input.reset();
+
+                    self.back_to_previous_view();
+                }
+                // Invalid non-empty input: stay in the modal
+            }
+            Esc => {
+                input.reset();
+
+                self.back_to_previous_view();
+            }
+            // Only digits and a decimal point make sense here
+            Char(c) if !c.is_ascii_digit() && c != '.' => {}
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
     }
 
     fn render(
@@ -767,7 +913,25 @@ impl App {
             header_area,
         );
 
-        // Hint
+        // Hint and timer readout
+        self.render_hint(f, hint_area);
+
+        // Main view
+        View::show_items(self, items, f, main_area);
+
+        // Modal on top of the current view, if any
+        self.render_modal(
+            f,
+            area,
+            input,
+            status_items,
+            priority_items,
+            delete_confirm_items,
+        );
+    }
+
+    /// The hint line, plus the running timer readout (right aligned).
+    fn render_hint(&self, f: &mut Frame, hint_area: Rect) {
         f.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 " h  help",
@@ -776,7 +940,6 @@ impl App {
             hint_area,
         );
 
-        // Timer readout (right aligned on the hint line)
         if let Some(timer) = &self.timer {
             let secs = match timer.kind {
                 TimerKind::Stopwatch => timer.elapsed().as_secs(),
@@ -825,57 +988,40 @@ impl App {
                 hint_area,
             );
         }
+    }
 
-        // Main view
-        View::show_items(self, items, f, main_area);
-
-        // Other views
-        if self.view_mode == ViewMode::InfoMigration {
-            View::show_migration_info_modal(f, area);
-        }
-
-        if self.view_mode == ViewMode::AddTask || self.view_mode == ViewMode::AddProject {
-            View::show_new_item_modal(f, area, input)
-        }
-
-        if self.view_mode == ViewMode::RenameTask || self.view_mode == ViewMode::RenameProject {
-            View::show_rename_item_modal(f, area, input)
-        }
-
-        if self.view_mode == ViewMode::EditTaskNote {
-            View::show_edit_note_modal(f, area, input)
-        }
-
-        if self.view_mode == ViewMode::SetCountdown {
-            View::show_countdown_modal(f, area, input)
-        }
-
-        if self.view_mode == ViewMode::SetTaskEstimate {
-            View::show_task_estimate_modal(f, area, input)
-        }
-
-        if self.view_mode == ViewMode::TimerTask {
-            View::show_timer_modal(self, f, area)
-        }
-
-        if self.view_mode == ViewMode::DeleteTask || self.view_mode == ViewMode::DeleteProject {
-            View::show_delete_item_modal(self, delete_confirm_items, f, area)
-        }
-
-        if self.view_mode == ViewMode::ChangeStatusTask {
-            View::show_select_task_status_modal(self, status_items, f, area)
-        }
-
-        if self.view_mode == ViewMode::ChangePriorityTask {
-            View::show_select_task_priority_modal(self, priority_items, f, area)
-        }
-
-        if self.view_mode == ViewMode::ViewHelp {
-            View::show_help_modal(self, f, area)
-        }
-
-        if self.view_mode == ViewMode::ViewTaskDetails {
-            View::show_task_details_modal(self, f, area)
+    /// Render the modal for the current view mode, if any.
+    fn render_modal(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        input: &Input,
+        status_items: &Vec<ListItem>,
+        priority_items: &Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
+    ) {
+        match self.view_mode {
+            ViewMode::InfoMigration => View::show_migration_info_modal(f, area),
+            ViewMode::AddTask | ViewMode::AddProject => View::show_new_item_modal(f, area, input),
+            ViewMode::RenameTask | ViewMode::RenameProject => {
+                View::show_rename_item_modal(f, area, input)
+            }
+            ViewMode::EditTaskNote => View::show_edit_note_modal(f, area, input),
+            ViewMode::SetCountdown => View::show_countdown_modal(f, area, input),
+            ViewMode::SetTaskEstimate => View::show_task_estimate_modal(f, area, input),
+            ViewMode::TimerTask => View::show_timer_modal(self, f, area),
+            ViewMode::DeleteTask | ViewMode::DeleteProject => {
+                View::show_delete_item_modal(self, delete_confirm_items, f, area)
+            }
+            ViewMode::ChangeStatusTask => {
+                View::show_select_task_status_modal(self, status_items, f, area)
+            }
+            ViewMode::ChangePriorityTask => {
+                View::show_select_task_priority_modal(self, priority_items, f, area)
+            }
+            ViewMode::ViewHelp => View::show_help_modal(self, f, area),
+            ViewMode::ViewTaskDetails => View::show_task_details_modal(self, f, area),
+            _ => {}
         }
     }
 

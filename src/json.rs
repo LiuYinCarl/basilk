@@ -1,4 +1,9 @@
-use std::{error::Error, fs, path::PathBuf, sync::Mutex};
+use std::{
+    error::Error,
+    fs,
+    path::PathBuf,
+    sync::{Mutex, MutexGuard},
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
@@ -50,66 +55,80 @@ impl Json {
 
     pub fn check() -> Result<bool, Box<dyn Error>> {
         fs::create_dir_all(Json::get_dir_path())?;
+        Json::check_data()
+    }
 
-        let mut version_state = VERSION.lock().unwrap();
+    /// Decide how to bring the data file up to date: migrate the current
+    /// file in place, or bootstrap it from the legacy versioned files.
+    fn check_data() -> Result<bool, Box<dyn Error>> {
+        let version_state = VERSION.lock().unwrap();
         let data_path = Json::get_data_path();
 
         if data_path.is_file() {
-            let json_raw = fs::read_to_string(&data_path)?;
-            if json_raw.trim().is_empty() {
-                let last_json_version = JSON_VERSIONS.last().unwrap();
-                version_state.clear();
-                version_state.push_str(last_json_version);
-                drop(version_state);
-                Json::write(vec![]);
-                return Ok(false);
-            }
-            let wrapper: DataWrapper = from_str(&json_raw)?;
-            version_state.clear();
-            version_state.push_str(&wrapper.version);
-
-            let migrations = Migration::get_migrations(&wrapper.version, wrapper.data);
-
-            if migrations.is_empty() {
-                return Ok(false);
-            }
-
-            for (version, migration_data) in migrations.iter() {
-                version_state.clear();
-                version_state.push_str(version);
-                Json::write_internal(
-                    &data_path,
-                    version_state.to_string(),
-                    migration_data.clone(),
-                );
-            }
-
-            return Ok(true);
+            Json::check_data_file(version_state, &data_path)
+        } else {
+            Json::check_legacy_files(version_state, &data_path)
         }
+    }
 
-        // Migration from old versioned files
-        let json_version_from_file: Vec<&str> = JSON_VERSIONS
-            .into_iter()
-            .filter(|version| {
-                let p = Json::get_json_path(version.to_string());
-                p.is_file()
-            })
-            .collect();
+    /// The current data file exists. An empty file is reset to the latest
+    /// version; otherwise the stored version is recorded and any pending
+    /// migrations are applied one by one.
+    fn check_data_file(
+        mut version_state: MutexGuard<String>,
+        data_path: &PathBuf,
+    ) -> Result<bool, Box<dyn Error>> {
+        let json_raw = fs::read_to_string(data_path)?;
 
-        if json_version_from_file.is_empty() {
+        if json_raw.trim().is_empty() {
             let last_json_version = JSON_VERSIONS.last().unwrap();
             version_state.clear();
             version_state.push_str(last_json_version);
-            let projects: Vec<Project> = vec![];
-            let wrapper = DataWrapper {
-                version: last_json_version.to_string(),
-                data: projects,
-            };
-            fs::write(&data_path, to_string(&wrapper).unwrap()).unwrap();
+            drop(version_state);
+            Json::write(vec![]);
             return Ok(false);
         }
 
-        let old_version = json_version_from_file[0];
+        let wrapper: DataWrapper = from_str(&json_raw)?;
+        version_state.clear();
+        version_state.push_str(&wrapper.version);
+
+        let migrations = Migration::get_migrations(&wrapper.version, wrapper.data);
+
+        if migrations.is_empty() {
+            return Ok(false);
+        }
+
+        for (version, migration_data) in migrations.iter() {
+            version_state.clear();
+            version_state.push_str(version);
+            Json::write_internal(data_path, version_state.to_string(), migration_data.clone());
+        }
+
+        Ok(true)
+    }
+
+    /// No current data file: migrate the oldest legacy versioned file into
+    /// the new format, or seed a fresh empty data file when none exists.
+    /// After a legacy migration the whole check re-runs so that any further
+    /// migrations are applied on top.
+    fn check_legacy_files(
+        mut version_state: MutexGuard<String>,
+        data_path: &PathBuf,
+    ) -> Result<bool, Box<dyn Error>> {
+        let old_version = JSON_VERSIONS
+            .into_iter()
+            .find(|version| Json::get_json_path(version.to_string()).is_file());
+
+        let Some(old_version) = old_version else {
+            let last_json_version = JSON_VERSIONS.last().unwrap();
+            version_state.clear();
+            version_state.push_str(last_json_version);
+            drop(version_state);
+            Json::write(vec![]);
+            return Ok(false);
+        };
+
         let old_path = Json::get_json_path(old_version.to_string());
         let json_raw = fs::read_to_string(&old_path)?;
         let data = from_str::<Vec<Project>>(&json_raw)?;
@@ -120,14 +139,14 @@ impl Json {
             version: old_version.to_string(),
             data,
         };
-        fs::write(&data_path, to_string(&wrapper).unwrap()).unwrap();
+        fs::write(data_path, to_string(&wrapper).unwrap()).unwrap();
 
         // Optionally delete old file
         let _ = fs::remove_file(old_path);
 
         // Re-run check to apply any further migrations
         drop(version_state);
-        return Json::check();
+        Json::check()
     }
 
     pub fn read() -> Vec<Project> {
