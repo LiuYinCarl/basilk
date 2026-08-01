@@ -8,6 +8,8 @@ use ratatui::{
 use tui_input::Input;
 
 use crate::{
+    markdown::render_markdown,
+    note::Note,
     project::Project,
     task::{Task, TASK_PRIORITY_NONE, TASK_STATUSES},
     timer::TimerKind,
@@ -17,6 +19,20 @@ use crate::{
 };
 
 pub struct View {}
+
+/// Approximate number of lines a paragraph occupies once wrapped to
+/// `width` columns (ratatui 0.27 keeps `Paragraph::line_count` private).
+/// Word wrapping can produce slightly more lines than this estimate;
+/// it is only used to clamp the note preview scroll offset.
+fn wrapped_line_count(text: &Text, width: u16) -> usize {
+    let width = usize::from(width).max(1);
+
+    text.lines
+        .iter()
+        .map(|line| line.width().div_ceil(width))
+        .map(|n| n.max(1))
+        .sum()
+}
 
 /// One 5-row block glyph for a digit or colon in the big timer readout.
 fn digit_glyph(c: char) -> [&'static str; 5] {
@@ -211,6 +227,7 @@ impl View {
         let title = match app.view_mode {
             ViewMode::DeleteTask => &Task::get_current(app).title,
             ViewMode::DeleteProject => &Project::get_current(app).title,
+            ViewMode::DeleteNote => &Note::get_current(app).title,
             _ => "",
         };
 
@@ -263,7 +280,13 @@ impl View {
     }
 
     pub fn show_items(app: &mut App, items: &Vec<ListItem>, f: &mut Frame, area: Rect) {
-        // Timer modals show the list of the view they were opened from
+        // Timer modals show the list of the view they were opened from;
+        // the help modal shows the list of the view it was opened from
+        // (classified via `previous_view_mode`). Without this, opening
+        // help over the projects/notes view would fall into the tasks
+        // branch and call `Project::get_current`, which panics when the
+        // project list is empty (or its selection was cleared by an
+        // empty-list render).
         let from_projects =
             matches!(
                 app.view_mode,
@@ -271,16 +294,30 @@ impl View {
                     | ViewMode::AddProject
                     | ViewMode::RenameProject
                     | ViewMode::DeleteProject
+                    | ViewMode::InfoMigration
             ) || (matches!(app.view_mode, ViewMode::TimerTask | ViewMode::SetCountdown)
-                && app.previous_view_mode == ViewMode::ViewProjects);
+                && app.previous_view_mode == ViewMode::ViewProjects)
+                || (app.view_mode == ViewMode::ViewHelp
+                    && app.previous_view_mode == ViewMode::ViewProjects);
 
-        if !from_projects && app.board_view {
+        let from_notes = matches!(
+            app.view_mode,
+            ViewMode::ViewNotes | ViewMode::AddNote | ViewMode::RenameNote | ViewMode::DeleteNote
+        ) || (app.view_mode == ViewMode::ViewHelp
+            && matches!(
+                app.previous_view_mode,
+                ViewMode::ViewNotes | ViewMode::ViewNote | ViewMode::EditNote
+            ));
+
+        if !from_projects && !from_notes && app.board_view {
             View::show_board(app, f, area);
             return;
         }
 
         let block: Block = if from_projects {
             Block::bordered()
+        } else if from_notes {
+            Block::bordered().title(" Notes ")
         } else {
             Block::bordered().title(Util::get_spaced_title(&Project::get_current(app).title))
         };
@@ -299,6 +336,7 @@ impl View {
             || app.view_mode == ViewMode::ChangePriorityTask
             || app.view_mode == ViewMode::DeleteTask
             || app.view_mode == ViewMode::DeleteProject
+            || app.view_mode == ViewMode::DeleteNote
         {
             f.render_widget(items, area)
         } else {
@@ -499,15 +537,77 @@ impl View {
         Ui::create_modal(f, 60, 22, area, widget)
     }
 
+    /// Full-page note preview: the Markdown body rendered with styles,
+    /// scrollable via `app.note_scroll` (clamped here against the wrapped
+    /// content height so `G` can just set `u16::MAX`).
+    pub fn show_note(app: &mut App, f: &mut Frame, area: Rect) {
+        let (title, body) = {
+            let note = Note::get_current(app);
+            (note.title.clone(), note.body.clone())
+        };
+
+        let text = if body.trim().is_empty() {
+            Text::from(Line::from(Span::styled(
+                "empty note — press e to write some Markdown",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )))
+        } else {
+            render_markdown(&body)
+        };
+
+        let inner_height = area.height.saturating_sub(2) as usize;
+        let content_lines = wrapped_line_count(&text, area.width.saturating_sub(2));
+
+        let paragraph = Paragraph::new(text)
+            .wrap(Wrap { trim: false })
+            .block(Block::bordered().title(Util::get_spaced_title(&title)));
+
+        app.note_scroll = app
+            .note_scroll
+            .min(content_lines.saturating_sub(inner_height) as u16);
+
+        f.render_widget(paragraph.scroll((app.note_scroll, 0)), area);
+    }
+
+    /// Full-page note editor: the `tui-textarea` created when entering
+    /// `ViewMode::EditNote`, rendered with its own block and cursor.
+    pub fn show_note_editor(app: &mut App, f: &mut Frame, area: Rect) {
+        if let Some(textarea) = app.note_textarea.as_mut() {
+            f.render_widget(&*textarea, area);
+        }
+    }
+
     pub fn show_help_modal(app: &mut App, f: &mut Frame, area: Rect) {
         let bindings: &[(&str, &str)] = match app.previous_view_mode {
             ViewMode::ViewProjects => &[
                 ("↑ ↓  k j", "next/prev"),
                 ("Enter  →  l", "go to tasks"),
+                ("m", "notes"),
                 ("n", "new"),
                 ("r", "rename"),
                 ("d", "delete"),
                 ("c", "pomodoro timer"),
+                ("h", "help"),
+                ("q", "quit"),
+            ],
+            ViewMode::ViewNotes => &[
+                ("↑ ↓  k j", "next/prev"),
+                ("Enter  →  l  v", "preview"),
+                ("n", "new"),
+                ("r", "rename"),
+                ("d", "delete"),
+                ("Esc  ←", "back"),
+                ("h", "help"),
+                ("q", "quit"),
+            ],
+            ViewMode::ViewNote => &[
+                ("↑ ↓  k j", "scroll"),
+                ("PgUp  PgDn", "page up/down"),
+                ("g  G", "top/bottom"),
+                ("e", "edit (Esc saves)"),
+                ("Esc  Enter", "back"),
                 ("h", "help"),
                 ("q", "quit"),
             ],
@@ -587,11 +687,13 @@ impl View {
 mod tests {
     use super::*;
     use crate::{
+        note::Note,
         project::Project,
         task::{TASK_PRIORITY_NONE, TASK_STATUS_DONE, TASK_STATUS_ON_GOING, TASK_STATUS_UP_NEXT},
         test_utils::{make_app, make_task},
     };
     use ratatui::{backend::TestBackend, Terminal};
+    use tui_textarea::TextArea;
 
     /// Rendering must not panic on any lane composition (all lanes filled,
     /// some empty, board narrower than the content).
@@ -631,5 +733,79 @@ mod tests {
         terminal
             .draw(|f| View::show_board(&mut app, f, f.size()))
             .unwrap();
+    }
+
+    fn note_app(body: String) -> App {
+        let mut app = make_app(vec![]);
+        app.notes = vec![Note {
+            title: "n".to_string(),
+            body,
+            created_at: None,
+            updated_at: None,
+        }];
+        app
+    }
+
+    /// The preview must render at any size and clamp an out-of-range
+    /// scroll offset (e.g. after pressing `G`) into the content.
+    #[test]
+    fn show_note_renders_without_panicking_and_clamps_scroll() {
+        for (width, height) in [(120, 30), (60, 20), (30, 10), (12, 4)] {
+            let mut app = note_app("# Title\n\nsome **bold** text\n\n- a\n- b\n".repeat(20));
+            app.note_scroll = u16::MAX;
+
+            let backend = TestBackend::new(width, height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|f| View::show_note(&mut app, f, f.size()))
+                .unwrap();
+
+            assert!(app.note_scroll < u16::MAX);
+        }
+    }
+
+    #[test]
+    fn show_note_renders_empty_body_hint() {
+        let mut app = note_app(String::new());
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| View::show_note(&mut app, f, f.size()))
+            .unwrap();
+    }
+
+    #[test]
+    fn show_note_editor_renders_without_panicking() {
+        let mut app = note_app(String::new());
+        app.note_textarea = Some(TextArea::from(vec!["# hi".to_string(), "body".to_string()]));
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| View::show_note_editor(&mut app, f, f.size()))
+            .unwrap();
+    }
+
+    /// Regression test: opening help over the notes view (or the projects
+    /// view) with an empty project list used to fall into the tasks
+    /// branch of `show_items` and panic in `Project::get_current` — the
+    /// more so because ratatui clears the list selection (`select(None)`)
+    /// when rendering an empty list.
+    #[test]
+    fn show_items_with_help_over_notes_or_projects_tolerates_empty_projects() {
+        for previous in [ViewMode::ViewNotes, ViewMode::ViewProjects] {
+            let mut app = make_app(vec![]);
+            app.view_mode = ViewMode::ViewHelp;
+            app.previous_view_mode = previous;
+            app.selected_project_index.select(None);
+            let items = vec![];
+
+            let backend = TestBackend::new(80, 24);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|f| View::show_items(&mut app, &items, f, f.size()))
+                .unwrap();
+        }
     }
 }

@@ -68,6 +68,7 @@ Press `h` to view the keybinding list in-app.
 |---|---|
 | `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate projects |
 | `Enter`  `→`  `l` | Enter project (view tasks) |
+| `m` | Open notes |
 | `n` | New project |
 | `r` | Rename selected project |
 | `d` | Delete selected project |
@@ -126,6 +127,33 @@ Press `h` to view the keybinding list in-app.
 | `Enter` | Stop (a stopwatch saves its elapsed time to the bound task) |
 | `Esc` | Close (timer keeps running in the background) |
 
+### Notes List View
+| Key | Action |
+|---|---|
+| `↑` `↓`  `k` `j`  `Tab` `Shift+Tab` | Navigate notes |
+| `Enter`  `→`  `l`  `v` | Open the note preview |
+| `n` | New note |
+| `r` | Rename selected note |
+| `d` | Delete selected note |
+| `Esc`  `←` | Back to project list |
+| `h` | Help |
+
+### Note Preview View
+| Key | Action |
+|---|---|
+| `↑` `↓`  `k` `j` | Scroll |
+| `PageUp` `PageDown` | Page up / down |
+| `g`  `G` | Top / bottom |
+| `e` | Edit (Markdown source) |
+| `Esc`  `Enter` | Back to notes list |
+| `h` | Help |
+
+### Note Editor View
+| Key | Action |
+|---|---|
+| `Esc` | Save and return to the preview |
+| Any other key | Editing (multi-line, handled by the editor) |
+
 The timer keeps running while you navigate (even back to the project list); it stops when you press `Enter` in the timer view or when you quit.
 
 - **Stopwatch** (`s`, task list): bound to the selected task; the elapsed time accumulates into the task's **Time Spent**, shown in the details view next to the task's **Estimate** (how long you expect the task to take, editable per task with `g`; the details view shows what percentage of the estimate has been spent).
@@ -138,6 +166,8 @@ Tasks are displayed as `[Status] Title` with optional `[Priority]` prefix and, f
 Completed tasks are **hidden by default** in the task list view. Press `t` to toggle their visibility.
 
 Press `b` in the task list view to switch to a kanban **board view**: three vertical lanes (**Up Next** / **On Going** / **Done**), each titled with its task count, the focused lane highlighted in its status color. Use `←`/`→` to move between lanes and `↑`/`↓` to select a task within a lane; every other shortcut (`v` details, `Enter` status, `p` priority, timers, …) works the same, and changing a task's status moves it to the matching lane. The board always shows the Done lane, regardless of the `t` setting (which is a no-op while the board is active).
+
+Press `m` in the project list view to open **notes**: global, project-independent memos. A note is a titled entry whose body is Markdown; opening one shows a full-page rendered preview (headings, bold/italic, code blocks, lists, quotes, links), and `e` switches to a full-page multi-line editor for the Markdown source (`Esc` saves and returns to the preview).
 
 ## Contributing
 > [!NOTE]  

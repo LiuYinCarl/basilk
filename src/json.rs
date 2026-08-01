@@ -10,6 +10,7 @@ use serde_json::{from_str, to_string};
 
 use crate::{
     migration::{Migration, JSON_VERSIONS},
+    note::Note,
     project::Project,
 };
 
@@ -23,6 +24,9 @@ static VERSION: Mutex<String> = Mutex::new(String::new());
 struct DataWrapper {
     version: String,
     data: Vec<Project>,
+    /// Global notes; `default` keeps pre-notes data files loadable.
+    #[serde(default)]
+    notes: Vec<Note>,
 }
 
 impl Json {
@@ -102,7 +106,12 @@ impl Json {
         for (version, migration_data) in migrations.iter() {
             version_state.clear();
             version_state.push_str(version);
-            Json::write_internal(data_path, version_state.to_string(), migration_data.clone());
+            Json::write_internal(
+                data_path,
+                version_state.to_string(),
+                migration_data.clone(),
+                wrapper.notes.clone(),
+            );
         }
 
         Ok(true)
@@ -138,6 +147,7 @@ impl Json {
         let wrapper = DataWrapper {
             version: old_version.to_string(),
             data,
+            notes: vec![],
         };
         fs::write(data_path, to_string(&wrapper).unwrap()).unwrap();
 
@@ -161,15 +171,37 @@ impl Json {
         return wrapper.data;
     }
 
+    /// Write the project list, keeping the notes already on disk.
     pub fn write(projects: Vec<Project>) {
         let version = VERSION.lock().unwrap().to_string();
         let path = Json::get_data_path();
 
-        Json::write_internal(&path, version, projects);
+        Json::write_internal(&path, version, projects, Json::read_notes());
     }
 
-    fn write_internal(path: &PathBuf, version: String, data: Vec<Project>) {
-        let wrapper = DataWrapper { version, data };
+    pub fn read_notes() -> Vec<Note> {
+        let path = Json::get_data_path();
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|json| from_str::<DataWrapper>(&json).ok())
+            .map(|wrapper| wrapper.notes)
+            .unwrap_or_default()
+    }
+
+    /// Write the note list, keeping the projects already on disk.
+    pub fn write_notes(notes: Vec<Note>) {
+        let version = VERSION.lock().unwrap().to_string();
+        let path = Json::get_data_path();
+
+        Json::write_internal(&path, version, Json::read(), notes);
+    }
+
+    fn write_internal(path: &PathBuf, version: String, data: Vec<Project>, notes: Vec<Note>) {
+        let wrapper = DataWrapper {
+            version,
+            data,
+            notes,
+        };
         fs::write(path, to_string(&wrapper).unwrap()).unwrap();
     }
 }
@@ -177,6 +209,7 @@ impl Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::note::Note;
     use crate::task::{TASK_PRIORITY_NONE, TASK_STATUS_DONE};
     use crate::test_utils::{make_task, ENV_LOCK};
 
@@ -219,6 +252,36 @@ mod tests {
 
         assert!(!migrated);
         assert_eq!(Json::read(), vec![]);
+    }
+
+    #[test]
+    fn notes_round_trip_and_projects_write_preserves_them() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+        Json::check().unwrap();
+
+        let notes = vec![Note {
+            title: "n".to_string(),
+            body: "# hi".to_string(),
+            created_at: Some(1_700_000_000),
+            updated_at: None,
+        }];
+        Json::write_notes(notes.clone());
+        assert_eq!(Json::read_notes(), notes);
+
+        // A projects write (the common mutation path) must not drop notes
+        let projects = vec![Project {
+            title: "p".to_string(),
+            tasks: vec![make_task("t", TASK_STATUS_DONE, TASK_PRIORITY_NONE)],
+        }];
+        Json::write(projects.clone());
+        assert_eq!(Json::read(), projects);
+        assert_eq!(Json::read_notes(), notes);
+
+        // ...and a notes write must not drop projects
+        Json::write_notes(vec![]);
+        assert_eq!(Json::read(), projects);
     }
 
     #[test]

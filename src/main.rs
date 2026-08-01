@@ -19,7 +19,9 @@ use tui_input::{backend::crossterm::EventHandler, Input};
 
 mod cli;
 mod json;
+mod markdown;
 mod migration;
+mod note;
 mod project;
 mod task;
 mod timer;
@@ -28,9 +30,11 @@ mod util;
 mod view;
 
 use json::Json;
+use note::Note;
 use project::Project;
 use task::{Task, TASK_PRIORITIES, TASK_STATUSES};
 use timer::{TimerKind, TimerState};
+use tui_textarea::TextArea;
 use ui::Ui;
 use util::Util;
 use view::View;
@@ -56,6 +60,13 @@ pub enum ViewMode {
     SetCountdown,
     ViewHelp,
 
+    ViewNotes,
+    AddNote,
+    RenameNote,
+    DeleteNote,
+    ViewNote,
+    EditNote,
+
     InfoMigration,
 }
 
@@ -78,6 +89,13 @@ pub struct App {
     board_lane: usize,
     /// Per-lane selection/scroll state for the board view.
     board_lane_states: [ListState; 3],
+    /// Global notes, independent of projects.
+    notes: Vec<Note>,
+    selected_note_index: ListState,
+    /// Vertical scroll offset of the note preview page.
+    note_scroll: u16,
+    /// Editor state while `ViewMode::EditNote` is active.
+    note_textarea: Option<TextArea<'static>>,
 }
 
 /// What the event loop should do after a key press was handled.
@@ -144,6 +162,10 @@ impl App {
                 ListState::default().with_selected(Some(0)),
                 ListState::default().with_selected(Some(0)),
             ],
+            notes: Json::read_notes(),
+            selected_note_index: ListState::default().with_selected(Some(0)),
+            note_scroll: 0,
+            note_textarea: None,
         }
     }
 
@@ -245,6 +267,12 @@ impl App {
                 self.back_to_previous_view();
                 KeyAction::None
             }
+            ViewMode::ViewNotes => self.handle_view_notes(key, input, items),
+            ViewMode::AddNote => self.handle_add_note(key, input, items),
+            ViewMode::RenameNote => self.handle_rename_note(key, input, items),
+            ViewMode::DeleteNote => self.handle_delete_note(key, items, delete_confirm_items),
+            ViewMode::ViewNote => self.handle_view_note(key, items),
+            ViewMode::EditNote => self.handle_edit_note(key),
             ViewMode::InfoMigration => {
                 App::change_view(self, ViewMode::ViewProjects);
                 KeyAction::None
@@ -319,6 +347,11 @@ impl App {
 
                     App::change_view(self, ViewMode::SetCountdown);
                 }
+            }
+            Char('m') => {
+                Note::load_items(self, items);
+
+                App::change_view(self, ViewMode::ViewNotes);
             }
             Char('q') => {
                 return KeyAction::Quit;
@@ -889,6 +922,223 @@ impl App {
         KeyAction::None
     }
 
+    fn handle_view_notes(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Char('h') => {
+                self.previous_view_mode = ViewMode::ViewNotes;
+                App::change_view(self, ViewMode::ViewHelp);
+            }
+            Esc | Left => {
+                Project::load_items(self, items);
+
+                App::change_view(self, ViewMode::ViewProjects);
+            }
+            Enter | Right | Char('l') | Char('v') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                self.note_scroll = 0;
+
+                App::change_view(self, ViewMode::ViewNote);
+            }
+            Char('n') => {
+                input.reset();
+
+                App::change_view(self, ViewMode::AddNote);
+            }
+            Char('r') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                *input = input
+                    .clone()
+                    .with_value(Note::get_current(self).title.clone());
+
+                App::change_view(self, ViewMode::RenameNote);
+            }
+            Char('d') => {
+                if items.is_empty() {
+                    return KeyAction::Skip;
+                }
+
+                App::change_view(self, ViewMode::DeleteNote);
+            }
+            Down | Tab | Char('j') => {
+                self.next(items);
+            }
+            Up | BackTab | Char('k') => {
+                self.previous(items);
+            }
+            Char('q') => {
+                return KeyAction::Quit;
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    fn handle_add_note(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                if !input.value().is_empty() {
+                    Note::create(self, items, input.value());
+                    input.reset();
+
+                    self.selected_note_index
+                        .select(Some(self.notes.len().saturating_sub(1)));
+                }
+
+                App::change_view(self, ViewMode::ViewNotes);
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewNotes);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_rename_note(
+        &mut self,
+        key: KeyEvent,
+        input: &mut Input,
+        items: &mut Vec<ListItem>,
+    ) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Enter => {
+                Note::rename(self, items, input.value());
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewNotes);
+            }
+            Esc => {
+                input.reset();
+
+                App::change_view(self, ViewMode::ViewNotes);
+            }
+            _ => {
+                input.handle_event(&Event::Key(key));
+            }
+        }
+        KeyAction::None
+    }
+
+    fn handle_delete_note(
+        &mut self,
+        key: KeyEvent,
+        items: &mut Vec<ListItem>,
+        delete_confirm_items: &Vec<ListItem>,
+    ) -> KeyAction {
+        if self.handle_modal_nav(key.code, delete_confirm_items, ViewMode::ViewNotes) {
+            return KeyAction::Skip;
+        }
+        if key.code == KeyCode::Enter {
+            if self.delete_confirm_index.selected() == Some(0) {
+                Note::delete(self, items);
+            }
+            self.delete_confirm_index.select(Some(0));
+            App::change_view(self, ViewMode::ViewNotes);
+        }
+        KeyAction::None
+    }
+
+    /// Full-page Markdown preview: scroll keys adjust `note_scroll`
+    /// (clamped against the wrapped content height at render time).
+    fn handle_view_note(&mut self, key: KeyEvent, items: &mut Vec<ListItem>) -> KeyAction {
+        use KeyCode::*;
+        match key.code {
+            Char('h') => {
+                self.previous_view_mode = ViewMode::ViewNote;
+                App::change_view(self, ViewMode::ViewHelp);
+            }
+            Char('e') => {
+                let body = Note::get_current(self).body.clone();
+                let mut lines: Vec<String> = body.lines().map(|l| l.to_string()).collect();
+                if lines.is_empty() {
+                    lines.push(String::new());
+                }
+
+                let mut textarea = TextArea::from(lines);
+                textarea.set_block(Block::bordered().title(" Edit Note — Esc: save & back "));
+                self.note_textarea = Some(textarea);
+
+                App::change_view(self, ViewMode::EditNote);
+            }
+            Down | Char('j') => {
+                self.note_scroll = self.note_scroll.saturating_add(1);
+            }
+            Up | Char('k') => {
+                self.note_scroll = self.note_scroll.saturating_sub(1);
+            }
+            PageDown => {
+                self.note_scroll = self.note_scroll.saturating_add(10);
+            }
+            PageUp => {
+                self.note_scroll = self.note_scroll.saturating_sub(10);
+            }
+            Home | Char('g') => {
+                self.note_scroll = 0;
+            }
+            End | Char('G') => {
+                // Clamped to the real bottom when rendering
+                self.note_scroll = u16::MAX;
+            }
+            Esc | Enter => {
+                // The body may have changed in the editor; refresh the
+                // list so the snippet is up to date
+                Note::load_items(self, items);
+
+                App::change_view(self, ViewMode::ViewNotes);
+            }
+            Char('q') => {
+                return KeyAction::Quit;
+            }
+            _ => {}
+        }
+        KeyAction::None
+    }
+
+    /// Full-page editor: every key except Esc goes to the textarea;
+    /// Esc saves the body and returns to the rendered preview.
+    fn handle_edit_note(&mut self, key: KeyEvent) -> KeyAction {
+        if key.code == KeyCode::Esc {
+            if let Some(textarea) = self.note_textarea.take() {
+                let body = textarea.into_lines().join("\n");
+                // Skip the write (and the `updated_at` bump) when nothing changed
+                if body != Note::get_current(self).body {
+                    Note::update_body(self, &body);
+                }
+            }
+
+            App::change_view(self, ViewMode::ViewNote);
+            return KeyAction::None;
+        }
+
+        if let Some(textarea) = self.note_textarea.as_mut() {
+            textarea.input(key);
+        }
+        KeyAction::None
+    }
+
     fn render(
         &mut self,
         f: &mut Frame,
@@ -916,8 +1166,12 @@ impl App {
         // Hint and timer readout
         self.render_hint(f, hint_area);
 
-        // Main view
-        View::show_items(self, items, f, main_area);
+        // Main view: the note preview and editor take the whole main area
+        match self.view_mode {
+            ViewMode::ViewNote => View::show_note(self, f, main_area),
+            ViewMode::EditNote => View::show_note_editor(self, f, main_area),
+            _ => View::show_items(self, items, f, main_area),
+        }
 
         // Modal on top of the current view, if any
         self.render_modal(
@@ -1002,15 +1256,17 @@ impl App {
     ) {
         match self.view_mode {
             ViewMode::InfoMigration => View::show_migration_info_modal(f, area),
-            ViewMode::AddTask | ViewMode::AddProject => View::show_new_item_modal(f, area, input),
-            ViewMode::RenameTask | ViewMode::RenameProject => {
+            ViewMode::AddTask | ViewMode::AddProject | ViewMode::AddNote => {
+                View::show_new_item_modal(f, area, input)
+            }
+            ViewMode::RenameTask | ViewMode::RenameProject | ViewMode::RenameNote => {
                 View::show_rename_item_modal(f, area, input)
             }
             ViewMode::EditTaskNote => View::show_edit_note_modal(f, area, input),
             ViewMode::SetCountdown => View::show_countdown_modal(f, area, input),
             ViewMode::SetTaskEstimate => View::show_task_estimate_modal(f, area, input),
             ViewMode::TimerTask => View::show_timer_modal(self, f, area),
-            ViewMode::DeleteTask | ViewMode::DeleteProject => {
+            ViewMode::DeleteTask | ViewMode::DeleteProject | ViewMode::DeleteNote => {
                 View::show_delete_item_modal(self, delete_confirm_items, f, area)
             }
             ViewMode::ChangeStatusTask => {
@@ -1197,6 +1453,13 @@ impl App {
             }
             ViewMode::SetTaskEstimate => return &mut self.selected_task_index,
 
+            ViewMode::ViewNotes => return &mut self.selected_note_index,
+            ViewMode::AddNote => return &mut self.selected_note_index,
+            ViewMode::RenameNote => return &mut self.selected_note_index,
+            ViewMode::DeleteNote => return &mut self.delete_confirm_index,
+            ViewMode::ViewNote => return &mut self.selected_note_index,
+            ViewMode::EditNote => return &mut self.selected_note_index,
+
             ViewMode::ViewHelp => return &mut self.selected_project_index,
             ViewMode::InfoMigration => return &mut self.selected_project_index,
         };
@@ -1316,6 +1579,10 @@ pub(crate) mod test_utils {
                 ListState::default().with_selected(Some(0)),
                 ListState::default().with_selected(Some(0)),
             ],
+            notes: vec![],
+            selected_note_index: ListState::default().with_selected(Some(0)),
+            note_scroll: 0,
+            note_textarea: None,
         }
     }
 
@@ -1417,6 +1684,12 @@ mod tests {
             &a.delete_confirm_index
         });
         assert_state(&mut app, ViewMode::DeleteTask, |a| &a.delete_confirm_index);
+        assert_state(&mut app, ViewMode::ViewNotes, |a| &a.selected_note_index);
+        assert_state(&mut app, ViewMode::AddNote, |a| &a.selected_note_index);
+        assert_state(&mut app, ViewMode::RenameNote, |a| &a.selected_note_index);
+        assert_state(&mut app, ViewMode::ViewNote, |a| &a.selected_note_index);
+        assert_state(&mut app, ViewMode::EditNote, |a| &a.selected_note_index);
+        assert_state(&mut app, ViewMode::DeleteNote, |a| &a.delete_confirm_index);
     }
 
     mod board {

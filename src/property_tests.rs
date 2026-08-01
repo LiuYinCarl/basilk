@@ -145,4 +145,9 @@ proptest! {
     fn priority_indicator_is_bounded(value in any::<u8>()) {
         prop_assert!(Util::get_priority_indicator(value).chars().count() <= 3);
     }
+
+    #[test]
+    fn render_markdown_never_panics(md in ".*") {
+        let _ = crate::markdown::render_markdown(&md);
+    }
 }
