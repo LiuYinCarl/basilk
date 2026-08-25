@@ -12,6 +12,10 @@ keywords = ["tui", "kanban", "tasks", "ratatui", "terminal"]
 categories = ["command-line-utilities"]
 default-run = "basilk"
 
+[features]
+# Opt-in performance benchmarks: `./scripts/bench.sh`
+bench = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

@@ -4695,3 +4695,163 @@ mod tests {
         }
     }
 }
+
+/// Performance benchmarks (opt-in, not part of the normal test run).
+///
+/// Enable the `bench` feature and run with:
+///   cargo test --release --features bench --bin basilk perf_tests -- --ignored --nocapture
+/// or: ./scripts/bench.sh
+///
+/// Typical numbers on a 2023 M-series Mac (release build):
+///   load_items 10k tasks        ~2 ms
+///   full frame @ 2k tasks       ~0.3 ms (budget is 250 ms)
+///   render_markdown 312 KB      ~3 ms
+///   Json write/read 2k tasks    <0.5 ms
+///   idle CPU (poll loop)        0.0%
+#[cfg(all(test, feature = "bench"))]
+mod perf_tests {
+    use super::*;
+    use crate::markdown::render_markdown;
+    use crate::project::Project;
+    use crate::task::{Task, TASK_STATUS_UP_NEXT};
+    use crate::test_utils::{make_app, make_task, setup_temp_config, ENV_LOCK};
+    use ratatui::{backend::TestBackend, Terminal};
+    use std::time::Instant;
+
+    fn big_app(tasks_per_project: usize, projects: usize) -> App {
+        let mut projects_vec = Vec::new();
+        for p in 0..projects {
+            let mut tasks = Vec::new();
+            for t in 0..tasks_per_project {
+                tasks.push(make_task(
+                    &format!("p{p} task {t}"),
+                    TASK_STATUS_UP_NEXT,
+                    (t % 3) as u8,
+                ));
+            }
+            projects_vec.push(Project {
+                title: format!("project {p}"),
+                tasks,
+            });
+        }
+        make_app(projects_vec)
+    }
+
+    #[test]
+    #[ignore]
+    fn probe_scaling() {
+        // --- Task::load_items (rebuilds the item list + sorts) ---
+        for (tasks, projects) in [(1000, 1), (10_000, 1)] {
+            let mut app = big_app(tasks, projects);
+            let mut items = Vec::new();
+            let t = Instant::now();
+            Task::load_items(&mut app, &mut items);
+            println!(
+                "load_items: {tasks} tasks -> {:?} ({} items)",
+                t.elapsed(),
+                items.len()
+            );
+        }
+
+        // --- Project::load_items ---
+        for projects in [100, 1000] {
+            let mut app = big_app(5, projects);
+            let mut items = Vec::new();
+            let t = Instant::now();
+            Project::load_items(&mut app, &mut items);
+            println!(
+                "project_load_items: {projects} projects -> {:?}",
+                t.elapsed()
+            );
+        }
+
+        // --- Full-frame render, list view ---
+        let mut app = big_app(2000, 1);
+        app.view_mode = ViewMode::ViewTasks;
+        let mut items = Vec::new();
+        Task::load_items(&mut app, &mut items);
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let input = Input::default();
+        let mut status_items = Vec::new();
+        Task::load_statues_items(&mut status_items);
+        let mut priority_items = Vec::new();
+        Task::load_priority_items(&mut priority_items);
+        let mut delete_confirm_items = Vec::new();
+        Ui::load_delete_confirm_items(&mut delete_confirm_items);
+
+        let frames = 120;
+        let t = Instant::now();
+        for _ in 0..frames {
+            terminal
+                .draw(|f| {
+                    app.render(
+                        f,
+                        f.size(),
+                        &input,
+                        &items,
+                        &status_items,
+                        &priority_items,
+                        &delete_confirm_items,
+                    )
+                })
+                .unwrap();
+        }
+        println!(
+            "render list @2000 tasks: {frames} frames in {:?} ({:?}/frame)",
+            t.elapsed(),
+            t.elapsed() / frames
+        );
+
+        // --- Board view render ---
+        app.board_view = true;
+        app.board_sync();
+        let t = Instant::now();
+        for _ in 0..frames {
+            terminal
+                .draw(|f| {
+                    app.render(
+                        f,
+                        f.size(),
+                        &input,
+                        &items,
+                        &status_items,
+                        &priority_items,
+                        &delete_confirm_items,
+                    )
+                })
+                .unwrap();
+        }
+        println!(
+            "render board @2000 tasks: {frames} frames in {:?} ({:?}/frame)",
+            t.elapsed(),
+            t.elapsed() / frames
+        );
+
+        // --- Markdown rendering (note preview) ---
+        let md = format!(
+            "# big doc\n\n{}",
+            "paragraph with **bold**, *italic* and `code`\n\n- item one\n- item two\n\n> quote\n\n"
+                .repeat(4000)
+        );
+        let t = Instant::now();
+        let text = render_markdown(&md);
+        println!(
+            "render_markdown: {} chars -> {:?} ({} lines)",
+            md.len(),
+            t.elapsed(),
+            text.lines.len()
+        );
+
+        // --- JSON persistence ---
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _dir = setup_temp_config();
+        let app2 = big_app(2000, 1);
+        let t = Instant::now();
+        Json::write(app2.projects.clone());
+        println!("Json::write @2000 tasks: {:?}", t.elapsed());
+        let t = Instant::now();
+        let _p = Json::read();
+        println!("Json::read @2000 tasks: {:?}", t.elapsed());
+    }
+}
