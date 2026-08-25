@@ -8,6 +8,7 @@ Basilk is a TUI-based kanban task manager written in Rust using `ratatui`.
 - **Run**: `cargo run`
 - **Test**: `cargo test` (unit tests live in per-module `#[cfg(test)]` blocks; `src/property_tests.rs` holds proptest-based fuzz/property tests)
 - **Coverage**: `cargo llvm-cov --workspace` (install with `cargo install cargo-llvm-cov`; CI runs it via `taiki-e/install-action` with `--fail-under-lines 95`). Local runs measure ~99.5% line coverage. The only uncovered lines are the real-terminal glue in `main.rs` (`main`, `init_terminal`, `restore_terminal`, `CrosstermSource::next_key`), which cannot run inside a unit test; everything else — including the full event loop and every view/modal render — is covered by in-process tests.
+- **Releases**: Semantic Versioning driven by `.github/workflows/release.yml`. Any push to `master` touching code (`src/`, `tests/`, `Cargo.toml`, `Cargo.lock`) auto-bumps the **patch** version (commit subjects starting with `[major]`/`[minor]` bump that component), tags `vX.Y.Z`, and publishes binaries for Linux / macOS (Intel + ARM) / Windows. The bump commit is pushed with `GITHUB_TOKEN`, which does **not** re-trigger workflows (no infinite loop); a `concurrency: group: release` queue prevents racing bumps. Local manual alternative: `./scripts/bump-version.sh [patch|minor|major] [--push]`.
 - **Lint**: `cargo fmt --all -- --check` and `cargo clippy --all-targets --all-features -- -D warnings` (both used in CI)
 - **Format**: `cargo fmt`
 

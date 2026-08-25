@@ -47,6 +47,27 @@ git clone https://github.com/LiuYinCarl/basilk && cd basilk
 cargo install --path .
 ```
 
+Prebuilt binaries for Linux, macOS (Intel & Apple Silicon) and Windows are
+attached to every [GitHub Release](https://github.com/LiuYinCarl/basilk/releases).
+
+## Versioning & Releases
+
+Basilk follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`,
+stored in `Cargo.toml`). The [Release workflow](.github/workflows/release.yml)
+publishes a new version automatically:
+
+- **Every push to `master` that changes code** (`src/`, `tests/`, `Cargo.toml`,
+  `Cargo.lock`) bumps the **patch** version, tags it `vX.Y.Z` and publishes
+  release binaries for Linux, macOS and Windows.
+- Prefix a commit subject with **`[major]`** or **`[minor]`** to bump that
+  component instead (patch is the default).
+- The manual **Run workflow** button on the Release workflow also works, with
+  an explicit `patch`/`minor`/`major` choice.
+- For a local manual release: `./scripts/bump-version.sh [patch|minor|major] [--push]`.
+
+The version in `Cargo.toml`/`Cargo.lock` is always the source of truth, and
+the release binaries are built from the tagged commit.
+
 ## Usage
 Run
 
