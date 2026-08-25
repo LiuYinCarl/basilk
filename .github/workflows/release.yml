@@ -108,16 +108,20 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: basilk
+            asset: basilk-x86_64-unknown-linux-gnu
           - os: macos-14
             target: aarch64-apple-darwin
             bin: basilk
+            asset: basilk-aarch64-apple-darwin
           # Cross-compiled from the ARM runner; the project has no C deps
           - os: macos-14
             target: x86_64-apple-darwin
             bin: basilk
+            asset: basilk-x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: basilk.exe
+            asset: basilk-x86_64-pc-windows-msvc.exe
     steps:
       - uses: actions/checkout@v5
         with:
@@ -128,11 +132,14 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
+      - name: Stage binary with platform name
+        run: cp target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.asset }}
+        shell: bash
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: basilk-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/${{ matrix.bin }}
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
           if-no-files-found: error
 
   publish:
