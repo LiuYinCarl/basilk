@@ -220,7 +220,7 @@ impl View {
 
     pub fn show_delete_item_modal(
         app: &mut App,
-        confirm_items: &Vec<ListItem>,
+        confirm_items: &[ListItem],
         f: &mut Frame,
         area: Rect,
     ) {
@@ -233,7 +233,7 @@ impl View {
 
         let area = Ui::create_rect_area(30, 5, area);
 
-        let list_widget = List::new(confirm_items.clone())
+        let list_widget = List::new(confirm_items.to_vec())
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
             .highlight_symbol("> ")
             .highlight_spacing(HighlightSpacing::Always)
@@ -245,13 +245,13 @@ impl View {
 
     pub fn show_select_task_status_modal(
         app: &mut App,
-        status_items: &Vec<ListItem>,
+        status_items: &[ListItem],
         f: &mut Frame,
         area: Rect,
     ) {
         let area = Ui::create_rect_area(20, 5, area);
 
-        let task_status_list_widget = List::new(status_items.clone())
+        let task_status_list_widget = List::new(status_items.to_vec())
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
             .highlight_symbol("> ")
             .highlight_spacing(HighlightSpacing::Always)
@@ -263,13 +263,13 @@ impl View {
 
     pub fn show_select_task_priority_modal(
         app: &mut App,
-        priority_items: &Vec<ListItem>,
+        priority_items: &[ListItem],
         f: &mut Frame,
         area: Rect,
     ) {
         let area = Ui::create_rect_area(20, 6, area);
 
-        let task_status_list_widget = List::new(priority_items.clone())
+        let task_status_list_widget = List::new(priority_items.to_vec())
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
             .highlight_symbol("> ")
             .highlight_spacing(HighlightSpacing::Always)
@@ -279,7 +279,7 @@ impl View {
         f.render_stateful_widget(task_status_list_widget, area, app.use_state())
     }
 
-    pub fn show_items(app: &mut App, items: &Vec<ListItem>, f: &mut Frame, area: Rect) {
+    pub fn show_items(app: &mut App, items: &[ListItem], f: &mut Frame, area: Rect) {
         // Timer modals show the list of the view they were opened from;
         // the help modal shows the list of the view it was opened from
         // (classified via `previous_view_mode`). Without this, opening
@@ -323,7 +323,7 @@ impl View {
         };
 
         // Iterate through all elements in the `items` and stylize them.
-        let items = items.clone();
+        let items = items.to_vec();
 
         // Create a List from all list items and highlight the currently selected one
         let items = List::new(items)
@@ -365,7 +365,7 @@ impl View {
 
         for (lane, status) in TASK_STATUSES.into_iter().enumerate() {
             let indices = Task::lane_indices(app, status);
-            let status_color = Task::get_status_color(&status.to_string());
+            let status_color = Task::get_status_color(status);
             let focused = lane == app.board_lane;
 
             let lane_style = if focused {

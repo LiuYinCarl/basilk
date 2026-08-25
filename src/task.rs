@@ -32,22 +32,21 @@ pub const TASK_STATUS_UP_NEXT: &str = "UpNext";
 
 pub const TASK_PRIORITY_NONE: u8 = 0;
 
-pub const TASK_STATUSES: [&'static str; 3] =
-    [TASK_STATUS_UP_NEXT, TASK_STATUS_ON_GOING, TASK_STATUS_DONE];
+pub const TASK_STATUSES: [&str; 3] = [TASK_STATUS_UP_NEXT, TASK_STATUS_ON_GOING, TASK_STATUS_DONE];
 
-const TASK_STATUSES_SORT_ORDER: [&'static str; 3] =
+const TASK_STATUSES_SORT_ORDER: [&str; 3] =
     [TASK_STATUS_ON_GOING, TASK_STATUS_UP_NEXT, TASK_STATUS_DONE];
 
 // Ascending order: 1 highest priority; 2 medium; 3 lowest; TASK_PRIORITY_NONE = no priority
 pub const TASK_PRIORITIES: [u8; 4] = [1, 2, 3, TASK_PRIORITY_NONE];
 
 impl Task {
-    pub fn get_status_color(status: &String) -> ratatui::prelude::Color {
-        match status.as_str() {
-            TASK_STATUS_DONE => return Color::LightGreen,
-            TASK_STATUS_ON_GOING => return Color::Yellow,
-            TASK_STATUS_UP_NEXT => return Color::LightMagenta,
-            _ => return Color::Gray,
+    pub fn get_status_color(status: &str) -> ratatui::prelude::Color {
+        match status {
+            TASK_STATUS_DONE => Color::LightGreen,
+            TASK_STATUS_ON_GOING => Color::Yellow,
+            TASK_STATUS_UP_NEXT => Color::LightMagenta,
+            _ => Color::Gray,
         }
     }
 
@@ -62,10 +61,7 @@ impl Task {
         items.clear();
 
         for status in TASK_STATUSES {
-            let span = Span::styled(
-                status,
-                Style::new().fg(Task::get_status_color(&status.to_string())),
-            );
+            let span = Span::styled(status, Style::new().fg(Task::get_status_color(status)));
 
             items.push(ListItem::from(span))
         }
@@ -207,8 +203,8 @@ impl Task {
     }
 
     pub fn get_current(app: &mut App) -> &Task {
-        return &app.projects[app.selected_project_index.selected().unwrap()].tasks
-            [app.selected_task_index.selected().unwrap()];
+        &app.projects[app.selected_project_index.selected().unwrap()].tasks
+            [app.selected_task_index.selected().unwrap()]
     }
 
     pub fn create(app: &mut App, items: &mut Vec<ListItem>, value: &str) {

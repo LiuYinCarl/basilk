@@ -511,7 +511,7 @@ impl App {
 
                 let index = TASK_STATUSES
                     .into_iter()
-                    .position(|t| t == &Task::get_current(self).status)
+                    .position(|t| t == Task::get_current(self).status)
                     .unwrap();
 
                 self.selected_status_task_index.select(Some(index));
@@ -1139,15 +1139,16 @@ impl App {
         KeyAction::None
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
         f: &mut Frame,
         area: Rect,
         input: &Input,
-        items: &Vec<ListItem>,
-        status_items: &Vec<ListItem>,
-        priority_items: &Vec<ListItem>,
-        delete_confirm_items: &Vec<ListItem>,
+        items: &[ListItem],
+        status_items: &[ListItem],
+        priority_items: &[ListItem],
+        delete_confirm_items: &[ListItem],
     ) {
         let layout = Layout::vertical([
             Constraint::Percentage(2),
@@ -1250,9 +1251,9 @@ impl App {
         f: &mut Frame,
         area: Rect,
         input: &Input,
-        status_items: &Vec<ListItem>,
-        priority_items: &Vec<ListItem>,
-        delete_confirm_items: &Vec<ListItem>,
+        status_items: &[ListItem],
+        priority_items: &[ListItem],
+        delete_confirm_items: &[ListItem],
     ) {
         match self.view_mode {
             ViewMode::InfoMigration => View::show_migration_info_modal(f, area),
@@ -1281,7 +1282,7 @@ impl App {
         }
     }
 
-    fn next(&mut self, items: &Vec<ListItem>) -> () {
+    fn next(&mut self, items: &[ListItem]) {
         if items.is_empty() {
             return;
         }
@@ -1300,7 +1301,7 @@ impl App {
         self.use_state().select(Some(i))
     }
 
-    fn previous(&mut self, items: &Vec<ListItem>) {
+    fn previous(&mut self, items: &[ListItem]) {
         if items.is_empty() {
             return;
         }
@@ -1430,39 +1431,39 @@ impl App {
 
     fn use_state(&mut self) -> &mut ListState {
         match self.view_mode {
-            ViewMode::ViewProjects => return &mut self.selected_project_index,
-            ViewMode::RenameProject => return &mut self.selected_project_index,
-            ViewMode::AddProject => return &mut self.selected_project_index,
-            ViewMode::DeleteProject => return &mut self.delete_confirm_index,
+            ViewMode::ViewProjects => &mut self.selected_project_index,
+            ViewMode::RenameProject => &mut self.selected_project_index,
+            ViewMode::AddProject => &mut self.selected_project_index,
+            ViewMode::DeleteProject => &mut self.delete_confirm_index,
 
-            ViewMode::ViewTasks => return &mut self.selected_task_index,
-            ViewMode::RenameTask => return &mut self.selected_task_index,
-            ViewMode::ChangeStatusTask => return &mut self.selected_status_task_index,
-            ViewMode::ChangePriorityTask => return &mut self.selected_priority_task_index,
-            ViewMode::AddTask => return &mut self.selected_task_index,
-            ViewMode::DeleteTask => return &mut self.delete_confirm_index,
-            ViewMode::ViewTaskDetails => return &mut self.selected_task_index,
-            ViewMode::EditTaskNote => return &mut self.selected_task_index,
+            ViewMode::ViewTasks => &mut self.selected_task_index,
+            ViewMode::RenameTask => &mut self.selected_task_index,
+            ViewMode::ChangeStatusTask => &mut self.selected_status_task_index,
+            ViewMode::ChangePriorityTask => &mut self.selected_priority_task_index,
+            ViewMode::AddTask => &mut self.selected_task_index,
+            ViewMode::DeleteTask => &mut self.delete_confirm_index,
+            ViewMode::ViewTaskDetails => &mut self.selected_task_index,
+            ViewMode::EditTaskNote => &mut self.selected_task_index,
             // Timer modals can be opened from either list view; the list
             // underneath keeps the selection state of the originating view
             ViewMode::TimerTask | ViewMode::SetCountdown => {
                 if self.previous_view_mode == ViewMode::ViewProjects {
                     return &mut self.selected_project_index;
                 }
-                return &mut self.selected_task_index;
+                &mut self.selected_task_index
             }
-            ViewMode::SetTaskEstimate => return &mut self.selected_task_index,
+            ViewMode::SetTaskEstimate => &mut self.selected_task_index,
 
-            ViewMode::ViewNotes => return &mut self.selected_note_index,
-            ViewMode::AddNote => return &mut self.selected_note_index,
-            ViewMode::RenameNote => return &mut self.selected_note_index,
-            ViewMode::DeleteNote => return &mut self.delete_confirm_index,
-            ViewMode::ViewNote => return &mut self.selected_note_index,
-            ViewMode::EditNote => return &mut self.selected_note_index,
+            ViewMode::ViewNotes => &mut self.selected_note_index,
+            ViewMode::AddNote => &mut self.selected_note_index,
+            ViewMode::RenameNote => &mut self.selected_note_index,
+            ViewMode::DeleteNote => &mut self.delete_confirm_index,
+            ViewMode::ViewNote => &mut self.selected_note_index,
+            ViewMode::EditNote => &mut self.selected_note_index,
 
-            ViewMode::ViewHelp => return &mut self.selected_project_index,
-            ViewMode::InfoMigration => return &mut self.selected_project_index,
-        };
+            ViewMode::ViewHelp => &mut self.selected_project_index,
+            ViewMode::InfoMigration => &mut self.selected_project_index,
+        }
     }
 
     fn change_view(&mut self, mode: ViewMode) {

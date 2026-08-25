@@ -4,12 +4,14 @@ use crate::task::TASK_PRIORITY_NONE;
 //                              sha of 0.1.0     0.2.0    0.2.2     timer     notes
 pub static JSON_VERSIONS: [&str; 5] = ["6ad96", "911fc", "a4e1b", "c8f21", "e5a1c"];
 
+type MigrationFn = fn(Vec<Project>) -> Vec<Project>;
+
 pub struct Migration;
 
 impl Migration {
     pub fn get_migrations(version: &str, original_json: Vec<Project>) -> Vec<(&str, Vec<Project>)> {
         // Mapper between json version and the relative migration
-        let mapper: Vec<(&str, fn(Vec<Project>) -> Vec<Project>)> = vec![
+        let mapper: Vec<(&str, MigrationFn)> = vec![
             ("6ad96", |data| data),
             ("911fc", Migration::add_priority),
             ("a4e1b", Migration::add_note),
@@ -34,7 +36,7 @@ impl Migration {
             results.push((v, current_data.clone()));
         }
 
-        return results;
+        results
     }
 
     // Migrations

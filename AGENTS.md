@@ -7,7 +7,7 @@ Basilk is a TUI-based kanban task manager written in Rust using `ratatui`.
 - **Build**: `cargo build`
 - **Run**: `cargo run`
 - **Test**: `cargo test` (unit tests live in per-module `#[cfg(test)]` blocks; `src/property_tests.rs` holds proptest-based fuzz/property tests)
-- **Lint**: `cargo fmt --all -- --check` (used in CI)
+- **Lint**: `cargo fmt --all -- --check` and `cargo clippy --all-targets --all-features -- -D warnings` (both used in CI)
 - **Format**: `cargo fmt`
 
 ## Project Structure

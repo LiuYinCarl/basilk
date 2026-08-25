@@ -38,7 +38,7 @@ impl Json {
         let mut path = dirs::config_dir().unwrap();
         path.push(DIR_CONFIG_NAME);
 
-        return path;
+        path
     }
 
     fn get_data_path() -> PathBuf {
@@ -46,7 +46,7 @@ impl Json {
         path.push(Json::get_dir_path().as_path());
         path.push(DATA_FILE_NAME);
 
-        return path;
+        path
     }
 
     fn get_json_path(version: String) -> PathBuf {
@@ -54,7 +54,7 @@ impl Json {
         path.push(Json::get_dir_path().as_path());
         path.push(format!("{version}.json"));
 
-        return path;
+        path
     }
 
     pub fn check() -> Result<bool, Box<dyn Error>> {
@@ -168,7 +168,7 @@ impl Json {
         version_state.clear();
         version_state.push_str(&wrapper.version);
 
-        return wrapper.data;
+        wrapper.data
     }
 
     /// Write the project list, keeping the notes already on disk.

@@ -25,7 +25,7 @@ impl Util {
                 .unwrap_or(0)
         };
 
-        "!!!".chars().take((priority_value).into()).collect()
+        "!!!".chars().take(priority_value).collect()
     }
 
     /// Format a plain seconds count as HH:MM:SS (timer readouts).
