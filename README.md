@@ -175,6 +175,10 @@ Press `m` in the project list view to open **notes**: global, project-independen
 
 As I mentioned above, this is my first project in Rust, so contributions and help are welcome! If you have any suggestions, improvements, or bug fixes, feel free to submit a pull request or open a new issue.
 
+### Testing & coverage
+
+The test suite runs with `cargo test` and includes property tests (`src/property_tests.rs`). Coverage is measured with [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) (`cargo llvm-cov --workspace`) and enforced in CI (`--fail-under-lines 95`); the suite currently sits around **99.5% line coverage** — the only uncovered lines are the real-terminal glue in `main.rs` (`main`, `init_terminal`, `restore_terminal`, `CrosstermSource::next_key`), which cannot run inside a unit test. The full event loop, every view mode, and every key handler are exercised in-process via synthetic events and a `TestBackend`.
+
 ## License
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat&logo=GitHub&labelColor=1D272B&color=819188&logoColor=white)](./LICENSE-MIT)

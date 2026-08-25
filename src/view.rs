@@ -698,6 +698,43 @@ mod tests {
     /// Rendering must not panic on any lane composition (all lanes filled,
     /// some empty, board narrower than the content).
     #[test]
+    fn digit_glyphs_cover_every_digit_colon_and_fallback() {
+        for c in '0'..='9' {
+            let glyph = digit_glyph(c);
+            assert_eq!(glyph.len(), 5, "glyph for {c}");
+            for row in glyph {
+                assert_eq!(row.chars().count(), 3, "glyph for {c}");
+            }
+        }
+        assert_eq!(digit_glyph(':')[0], " ");
+        assert_eq!(digit_glyph('?'), ["   ", "   ", "   ", "   ", "   "]);
+    }
+
+    #[test]
+    fn big_digit_lines_render_five_styled_rows() {
+        let lines = big_digit_lines("12:3", Color::Red);
+
+        assert_eq!(lines.len(), 5);
+        assert!(lines[0].spans[0].content.contains("█"));
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Red));
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn wrapped_line_count_estimates_wrapped_lines() {
+        let text = Text::from("abc");
+        assert_eq!(wrapped_line_count(&text, 2), 2); // ceil(3 / 2)
+        assert_eq!(wrapped_line_count(&text, 3), 1);
+        assert_eq!(wrapped_line_count(&text, 0), 3); // width clamps to 1 → one line per char
+
+        let multi = Text::from(vec![Line::raw("abcdef"), Line::raw("")]);
+        assert_eq!(wrapped_line_count(&multi, 3), 3); // 2 + 1 (empty line)
+    }
+
+    #[test]
     fn show_board_renders_without_panicking() {
         for (width, height) in [(120, 30), (60, 20), (30, 10), (12, 4)] {
             let mut app = make_app(vec![Project {

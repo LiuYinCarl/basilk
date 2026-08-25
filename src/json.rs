@@ -285,6 +285,39 @@ mod tests {
     }
 
     #[test]
+    fn get_dir_path_honors_the_env_var() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+
+        assert_eq!(Json::get_dir_path(), dir.path());
+    }
+
+    #[test]
+    fn get_dir_path_falls_back_to_the_config_dir() {
+        // Must not run in parallel with tests that set BASILK_CONFIG_DIR
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("BASILK_CONFIG_DIR");
+
+        let path = Json::get_dir_path();
+
+        assert!(path.ends_with(env!("CARGO_PKG_NAME")));
+    }
+
+    #[test]
+    fn check_returns_false_when_the_data_file_is_already_current() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("BASILK_CONFIG_DIR", dir.path());
+        Json::check().unwrap(); // creates the file at the current version
+
+        // Second run reads the existing (current) file: no migrations
+        let migrated = Json::check().unwrap();
+
+        assert!(!migrated);
+    }
+
+    #[test]
     fn check_migrates_old_versioned_files() {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();

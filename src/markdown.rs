@@ -366,6 +366,37 @@ mod tests {
     }
 
     #[test]
+    fn raw_html_is_ignored() {
+        assert!(render_markdown("<div>ignored</div>").lines.is_empty());
+    }
+
+    #[test]
+    fn image_alt_text_is_kept_but_the_url_is_not_shown() {
+        let lines = rendered_lines("![alt](https://example.com/pic.png)");
+        assert_eq!(lines, vec!["alt"]);
+    }
+
+    #[test]
+    fn h3_heading_gets_the_magenta_style() {
+        let text = render_markdown("### three");
+        assert_eq!(line_text(&text.lines[0]), "three");
+        assert_eq!(text.lines[0].spans[0].style.fg, Some(Color::LightMagenta));
+    }
+
+    #[test]
+    fn hard_breaks_split_the_line() {
+        let lines = rendered_lines("foo  \nbar");
+        assert_eq!(lines, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn trailing_blank_lines_are_trimmed() {
+        // The empty heading produces a trailing blank line that `finish` trims
+        let lines = rendered_lines("# hi\n\n# ");
+        assert_eq!(lines, vec!["hi"]);
+    }
+
+    #[test]
     fn unclosed_and_malformed_input_does_not_panic() {
         for md in ["**", "# ", "```\nunclosed", "[](", "> ", "-", "1.", "│ │"] {
             render_markdown(md);

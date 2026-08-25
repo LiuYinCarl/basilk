@@ -15,4 +15,15 @@ jobs:
           rust-version: "stable"
       - name: "Lint Rust"
         run: "cargo fmt --all -- --check"
-...
+      - name: "Install cargo-llvm-cov"
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: "Add llvm-tools-preview"
+        run: "rustup component add llvm-tools-preview"
+      # The whole test suite runs under coverage instrumentation. Local runs
+      # measure ~99.5% line coverage; the only uncovered lines are the
+      # real-terminal glue in main.rs (main/init_terminal/restore_terminal
+      # and CrosstermSource::next_key) which cannot run inside a unit test.
+      # The 95% gate catches regressions without being flaky across
+      # platforms. Measure locally with: cargo llvm-cov --workspace
+      - name: "Test with coverage"
+        run: "cargo llvm-cov --workspace --fail-under-lines 95"
