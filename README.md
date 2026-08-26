@@ -53,20 +53,26 @@ attached to every [GitHub Release](https://github.com/LiuYinCarl/basilk/releases
 ## Versioning & Releases
 
 Basilk follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`,
-stored in `Cargo.toml`). The [Release workflow](.github/workflows/release.yml)
-publishes a new version automatically:
+stored in `Cargo.toml`). Releases are **tag-driven** — the version number is
+updated manually and pushing the `vX.Y.Z` tag triggers the
+[Release workflow](.github/workflows/release.yml) to build and publish:
 
-- **Every push to `master` that changes code** (`src/`, `tests/`, `Cargo.toml`,
-  `Cargo.lock`) bumps the **patch** version, tags it `vX.Y.Z` and publishes
-  release binaries for Linux, macOS and Windows.
-- Prefix a commit subject with **`[major]`** or **`[minor]`** to bump that
-  component instead (patch is the default).
-- The manual **Run workflow** button on the Release workflow also works, with
-  an explicit `patch`/`minor`/`major` choice.
-- For a local manual release: `./scripts/bump-version.sh [patch|minor|major] [--push]`.
+1. Bump the version (updates `Cargo.toml` + `Cargo.lock`, commits and tags):
+   ```sh
+   ./scripts/bump-version.sh patch   # or minor / major
+   ```
+2. Push — the `vX.Y.Z` tag triggers the release build:
+   ```sh
+   git push origin master --tags
+   ```
 
-The version in `Cargo.toml`/`Cargo.lock` is always the source of truth, and
-the release binaries are built from the tagged commit.
+The workflow then builds binaries for Linux, macOS (Intel & Apple Silicon)
+and Windows, attaches them to a GitHub Release with auto-generated notes,
+and verifies the tag matches the version in `Cargo.toml` (it fails otherwise,
+so release binaries always report the tagged version).
+
+The manual **Run workflow** button can re-publish an existing tag (e.g. after
+a CI fix); it takes the tag name as input.
 
 ## Usage
 Run

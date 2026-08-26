@@ -74,4 +74,7 @@ echo "bumped $CURRENT -> $NEW (tag v$NEW)"
 if $PUSH; then
   git push origin "HEAD:master" --tags
   echo "pushed"
+else
+  echo "next: git push origin master --tags"
 fi
+echo "pushing the v$NEW tag triggers the GitHub Release pipeline"

@@ -1,105 +1,69 @@
 ---
 name: Release
 
-# Semantic-versioning release pipeline:
-# - Any push to `master` that touches code (src/, tests/, Cargo.toml,
-#   Cargo.lock) bumps the patch version, tags it `vX.Y.Z` and publishes
-#   binaries for Linux, macOS (Intel + Apple Silicon) and Windows.
-# - Prefix the commit subject with `[major]` or `[minor]` to bump the
-#   major/minor component instead (patch is the default).
-# - Use the manual "Run workflow" button for an immediate release or to
-#   force a specific bump level.
+# Tag-driven release pipeline:
+# - Pushing a `vX.Y.Z` tag builds release binaries for Linux, macOS
+#   (Intel + Apple Silicon) and Windows and publishes them to a GitHub
+#   Release with auto-generated notes.
+# - The version number is updated manually (./scripts/bump-version.sh or
+#   by editing Cargo.toml), then committed and tagged. The workflow never
+#   bumps versions or commits on its own.
+# - The tag must match the version declared in Cargo.toml.
+# - workflow_dispatch: re-publish an existing tag (e.g. after a build fix).
 on:
   push:
-    branches: [master]
-    paths: ['src/**', 'tests/**', 'Cargo.toml', 'Cargo.lock']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      bump:
-        description: 'Version bump (auto reads the [major]/[minor] commit prefix, otherwise patch)'
-        type: choice
-        default: auto
-        options: [auto, patch, minor, major]
+      tag:
+        description: 'Existing tag to build & publish, e.g. v0.2.6 (must match Cargo.toml)'
+        required: true
 
 permissions:
   contents: write
 
-# One release at a time: concurrent pushes queue up instead of racing on
-# the same version bump.
+# One release at a time; concurrent runs queue up instead of racing.
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Bump version & tag
+    name: Resolve & verify version
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.bump.outputs.version }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Detect code changes since last release
-        id: changes
+      - name: Resolve version from tag
+        id: meta
         run: |
-          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          if [ -z "$LAST_TAG" ]; then
-            echo "No previous tag — releasing."
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
           fi
-          CHANGED="$(git diff --name-only "$LAST_TAG"..HEAD -- src/ tests/ Cargo.toml Cargo.lock | wc -l | tr -d ' ')"
-          echo "changed=$([ "$CHANGED" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Bump version in Cargo.toml, commit and tag
-        id: bump
-        if: steps.changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+      # Build from the exact release commit, not the latest master
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ steps.meta.outputs.version }}
+
+      - name: Verify tag matches Cargo.toml
         run: |
-          set -euo pipefail
-
-          CURRENT="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
-          MAJOR="$(echo "$CURRENT" | cut -d. -f1)"
-          MINOR="$(echo "$CURRENT" | cut -d. -f2)"
-          PATCH="$(echo "$CURRENT" | cut -d. -f3)"
-
-          BUMP="${{ github.event.inputs.bump }}"
-          if [ "$BUMP" = "auto" ] || [ -z "$BUMP" ]; then
-            case "$(git log -1 --pretty=%B)" in
-              "[major]"*) BUMP=major ;;
-              "[minor]"*) BUMP=minor ;;
-              *) BUMP=patch ;;
-            esac
+          CARGO_VERSION="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+          if [ "$CARGO_VERSION" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::tag v${{ steps.meta.outputs.version }} but Cargo.toml declares $CARGO_VERSION"
+            exit 1
           fi
-
-          case "$BUMP" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            *) PATCH=$((PATCH + 1)) ;;
-          esac
-          NEW="$MAJOR.$MINOR.$PATCH"
-
-          # Bump the version in Cargo.toml and keep Cargo.lock's root
-          # package in sync (single-line python -c: portable across runners
-          # and YAML-safe, unlike sed/heredocs)
-          python3 -c "import re; p='Cargo.toml'; s=open(p).read(); s=re.sub(r'^version = \"[^\"]+\"', 'version = \"$NEW\"', s, count=1, flags=re.M); open(p,'w').write(s)"
-          python3 -c "import re; p='Cargo.lock'; s=open(p).read(); s=re.sub(r'(name = \"basilk\"\nversion = \")[^\"]+', r'\g<1>$NEW', s, count=1); open(p,'w').write(s)"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
-          git commit -m "chore: release v$NEW"
-          git tag "v$NEW"
-          git push origin "HEAD:master" --tags
-
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.target }}
     needs: release
-    if: needs.release.outputs.version != ''
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -125,7 +89,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Build from the version-bump commit, not the triggering SHA
           ref: v${{ needs.release.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -145,7 +108,6 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: [release, build]
-    if: needs.release.outputs.version != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
