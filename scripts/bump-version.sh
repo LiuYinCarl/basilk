@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 #
-# Bump the semantic version of the crate, commit and tag it.
+# Bump the semantic version of the crate in Cargo.toml + Cargo.lock.
+# The files are edited in the working tree only — nothing is committed
+# or tagged here.
 #
 # Usage:
-#   ./scripts/bump-version.sh [patch|minor|major] [--push]
+#   ./scripts/bump-version.sh [patch|minor|major]
 #
 #   patch (default): 0.2.1 -> 0.2.2
 #   minor:           0.2.1 -> 0.3.0
 #   major:           0.2.1 -> 1.0.0
 #
-#   --push: also push the commit and tag to origin.
-#
-# The CI release pipeline (`.github/workflows/release.yml`) does this
-# automatically on every code push to master (patch by default, or
-# major/minor when the commit subject starts with `[major]` / `[minor]`).
-# This script is for local, manual releases or pre-push version control.
+# Flow: the pre-commit hook (see .githooks/) requires every code commit
+# to include a version bump, so run this while preparing your commit,
+# stage everything together, and commit. The post-commit hook then
+# creates the vX.Y.Z tag automatically; pushing it triggers the CI
+# release pipeline (.github/workflows/release.yml).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 BUMP="${1:-patch}"
-PUSH=false
-for arg in "$@"; do
-  [ "$arg" = "--push" ] && PUSH=true
-done
+case "$BUMP" in
+  patch | minor | major) ;;
+  *) echo "usage: $0 [patch|minor|major]" >&2; exit 1 ;;
+esac
 
 CURRENT="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
 MAJOR="$(echo "$CURRENT" | cut -d. -f1)"
@@ -34,18 +35,12 @@ case "$BUMP" in
   major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
   minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
   patch) PATCH=$((PATCH + 1)) ;;
-  *) echo "usage: $0 [patch|minor|major] [--push]" >&2; exit 1 ;;
 esac
 
 NEW="$MAJOR.$MINOR.$PATCH"
 
 if [ -n "$(git tag -l "v$NEW")" ]; then
   echo "error: tag v$NEW already exists" >&2
-  exit 1
-fi
-
-if ! git diff --quiet; then
-  echo "error: working tree is dirty; commit or stash your changes first" >&2
   exit 1
 fi
 
@@ -65,16 +60,6 @@ s = re.sub(r'(name = "basilk"\nversion = ")[^"]+', r'\g<1>$NEW', s, count=1)
 open(path, "w").write(s)
 EOF
 
-git add Cargo.toml Cargo.lock
-git commit -m "chore: release v$NEW"
-git tag "v$NEW"
-
-echo "bumped $CURRENT -> $NEW (tag v$NEW)"
-
-if $PUSH; then
-  git push origin "HEAD:master" --tags
-  echo "pushed"
-else
-  echo "next: git push origin master --tags"
-fi
-echo "pushing the v$NEW tag triggers the GitHub Release pipeline"
+echo "bumped $CURRENT -> $NEW"
+echo "next: stage Cargo.toml + Cargo.lock together with your code changes and commit"
+echo "(the post-commit hook tags v$NEW; pushing the tag triggers the release pipeline)"

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# After a commit that bumps the crate version, create the matching
+# vX.Y.Z tag if it does not exist yet. Pushing that tag is what
+# triggers the GitHub Release pipeline (.github/workflows/release.yml).
+#
+# Enable the repo hooks once per clone:
+#   git config core.hooksPath .githooks   (or ./scripts/install-hooks.sh)
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Only act on commits that changed the `version` line of Cargo.toml.
+if ! git diff -U0 HEAD~1 HEAD -- Cargo.toml 2>/dev/null | grep -qE '^\+version = "[0-9]+\.[0-9]+\.[0-9]+"'; then
+  exit 0
+fi
+
+VERSION="$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+TAG="v$VERSION"
+
+# Nothing to do if the tag already exists (e.g. created manually).
+[ -z "$(git tag -l "$TAG")" ] || exit 0
+
+git tag "$TAG"
+echo "post-commit: created tag $TAG"
+echo "publish the release with: git push origin master --tags"

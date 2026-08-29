@@ -53,15 +53,33 @@ attached to every [GitHub Release](https://github.com/LiuYinCarl/basilk/releases
 ## Versioning & Releases
 
 Basilk follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`,
-stored in `Cargo.toml`). Releases are **tag-driven** — the version number is
-updated manually and pushing the `vX.Y.Z` tag triggers the
-[Release workflow](.github/workflows/release.yml) to build and publish:
+stored in `Cargo.toml`). Releases are **tag-driven** — pushing the `vX.Y.Z`
+tag triggers the [Release workflow](.github/workflows/release.yml) to build
+and publish.
 
-1. Bump the version (updates `Cargo.toml` + `Cargo.lock`, commits and tags):
+**Every code change must bump the version in the same commit** — a code
+commit without a version bump can never become a release, so this is
+enforced for you:
+
+- A `pre-commit` hook blocks code commits that don't bump the version
+  (code = `src/`, `tests/`, `Cargo.toml`, `Cargo.lock`). Enable the repo
+  hooks once per clone:
+  ```sh
+  ./scripts/install-hooks.sh
+  ```
+- A CI check (`version-bump` job) fails any push/PR that changes code
+  without bumping the version.
+
+The flow with hooks enabled:
+
+1. Make your code changes, then bump the version (updates `Cargo.toml` +
+   `Cargo.lock` in the working tree):
    ```sh
    ./scripts/bump-version.sh patch   # or minor / major
    ```
-2. Push — the `vX.Y.Z` tag triggers the release build:
+2. Stage everything and commit — the `post-commit` hook creates the
+   `vX.Y.Z` tag automatically.
+3. Push — the tag triggers the release build:
    ```sh
    git push origin master --tags
    ```

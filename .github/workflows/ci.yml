@@ -9,6 +9,42 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version-bump:
+    name: Version bumped with code changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Backstop for the local pre-commit hook: any change to the code
+      # that ships in the release binary (src/, tests/, Cargo manifests)
+      # must come with a version bump in Cargo.toml, otherwise the
+      # change can never become a GitHub Release.
+      - name: Code changes must bump the version
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no base revision to compare against; skipping"
+            exit 0
+          fi
+          if ! git diff --name-only "$BASE" HEAD | grep -qE '^(src/|tests/|Cargo\.toml$|Cargo\.lock$)'; then
+            echo "no code changes; nothing to check"
+            exit 0
+          fi
+          OLD="$(git show "$BASE":Cargo.toml | grep -m1 '^version = ')"
+          NEW="$(grep -m1 '^version = ' Cargo.toml)"
+          if [ "$OLD" = "$NEW" ]; then
+            echo "::error::code changed but the Cargo.toml version was not bumped (still ${NEW#version = })"
+            echo "::error::bump it with ./scripts/bump-version.sh [patch|minor|major] and include it in the change"
+            exit 1
+          fi
+          echo "version bumped: $OLD -> $NEW"
+
   check:
     name: Build & Test
     runs-on: ubuntu-latest

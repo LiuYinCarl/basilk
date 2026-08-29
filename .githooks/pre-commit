@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# Require every code change to bump the crate version in the SAME commit.
+# "Code" means anything that ships in the release binary: src/, tests/,
+# Cargo.toml and Cargo.lock. Docs, scripts and CI changes are exempt.
+#
+# Rationale: releases are tag-driven and the version lives in Cargo.toml,
+# so a code commit without a version bump can never become a release.
+#
+# Enable the repo hooks once per clone:
+#   git config core.hooksPath .githooks   (or ./scripts/install-hooks.sh)
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+CODE_RE='^(src/|tests/|Cargo\.toml$|Cargo\.lock$)'
+
+# No code changes in this commit: nothing to check.
+git diff --cached --name-only | grep -qE "$CODE_RE" || exit 0
+
+# The commit must change the `version` line of Cargo.toml (staged).
+if ! git diff --cached -U0 -- Cargo.toml | grep -qE '^\+version = "[0-9]+\.[0-9]+\.[0-9]+"'; then
+  cat >&2 <<'EOF'
+error: this commit changes code but does not bump the version.
+
+Every code change must ship as a new release: bump the version and
+stage it together with your changes, e.g.:
+
+  ./scripts/bump-version.sh patch   # or: minor / major
+  git add Cargo.toml Cargo.lock
+
+(bypass with: git commit --no-verify)
+EOF
+  exit 1
+fi
+
+NEW_VER="$(git show :Cargo.toml | grep -m1 '^version = ' | sed 's/version = "\(.*\)"/\1/')"
+
+# The tag must be fresh — reusing a released version would clash.
+if [ -n "$(git tag -l "v$NEW_VER")" ]; then
+  echo "error: tag v$NEW_VER already exists; bump to a fresh version" >&2
+  exit 1
+fi
+
+# Cargo.lock must be staged in sync with the new version.
+LOCK_VER="$(git show :Cargo.lock | awk '/^name = "basilk"$/{getline; print; exit}' | sed 's/version = "\(.*\)"/\1/')"
+if [ "$NEW_VER" != "$LOCK_VER" ]; then
+  echo "error: Cargo.toml bumps to $NEW_VER but the staged Cargo.lock still says $LOCK_VER" >&2
+  echo "run ./scripts/bump-version.sh (it updates both) and stage Cargo.lock" >&2
+  exit 1
+fi

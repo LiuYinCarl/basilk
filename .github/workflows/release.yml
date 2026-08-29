@@ -5,9 +5,10 @@ name: Release
 # - Pushing a `vX.Y.Z` tag builds release binaries for Linux, macOS
 #   (Intel + Apple Silicon) and Windows and publishes them to a GitHub
 #   Release with auto-generated notes.
-# - The version number is updated manually (./scripts/bump-version.sh or
-#   by editing Cargo.toml), then committed and tagged. The workflow never
-#   bumps versions or commits on its own.
+# - The version number is bumped manually with each code change
+#   (./scripts/bump-version.sh or by editing Cargo.toml) and committed
+#   alongside the code; the post-commit hook creates the vX.Y.Z tag.
+#   The workflow never bumps versions or commits on its own.
 # - The tag must match the version declared in Cargo.toml.
 # - workflow_dispatch: re-publish an existing tag (e.g. after a build fix).
 on:
