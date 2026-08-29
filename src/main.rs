@@ -137,6 +137,15 @@ impl KeySource for CrosstermSource {
 }
 
 fn init_terminal() -> Result<Terminal<impl Backend>, Box<dyn Error>> {
+    // Restore the terminal even if the app panics later: without this a
+    // panic leaves the terminal in raw mode / alternate screen, which
+    // looks like "the terminal can no longer accept input".
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = restore_terminal();
+        default_hook(panic_info);
+    }));
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout());
@@ -4026,7 +4035,7 @@ mod tests {
     // ------------------------------------------------------------------------
     mod event_loop {
         use super::*;
-        use crate::task::{TASK_PRIORITY_NONE, TASK_STATUS_UP_NEXT};
+        use crate::task::{TASK_PRIORITY_NONE, TASK_STATUS_DONE, TASK_STATUS_UP_NEXT};
         use crate::test_utils::make_task;
         use ratatui::{backend::TestBackend, Terminal};
         use std::collections::VecDeque;
@@ -4115,6 +4124,138 @@ mod tests {
             let result = app.run_with_source(terminal, false, &mut source);
 
             assert!(result.is_ok());
+        }
+
+        #[test]
+        fn help_over_an_all_done_task_list_does_not_panic() {
+            // Regression: when every task is done (and done tasks are
+            // hidden), the task list is empty. Opening help must not
+            // corrupt the project selection — ratatui clears the state of
+            // an empty list on render, which used to wipe
+            // `selected_project_index` and panic in `Project::get_current`
+            // on the next frame.
+            let _guard = ENV_LOCK.lock().unwrap();
+            let _dir = setup_temp_config();
+            let mut app = make_app(vec![Project {
+                title: "p".to_string(),
+                tasks: vec![make_task("t", TASK_STATUS_DONE, TASK_PRIORITY_NONE)],
+            }]);
+
+            let result = run(
+                &mut app,
+                vec![
+                    key(KeyCode::Enter),
+                    key(KeyCode::Char('h')),
+                    key(KeyCode::Char('x')),
+                    key(KeyCode::Char('q')),
+                ],
+                false,
+            );
+
+            assert!(result.is_ok());
+            assert_eq!(app.selected_project_index.selected(), Some(0));
+        }
+
+        struct ExhaustiveKeys {
+            keys: VecDeque<Option<KeyEvent>>,
+        }
+
+        impl KeySource for ExhaustiveKeys {
+            fn next_key(&mut self) -> io::Result<Option<KeyEvent>> {
+                match self.keys.pop_front() {
+                    Some(k) => Ok(k),
+                    // End the loop once the scripted keys are used up —
+                    // a bare `None` would tick forever.
+                    None => Err(io::Error::other("keys exhausted")),
+                }
+            }
+        }
+
+        /// Brute-force smoke test: random key sequences over projects with
+        /// all-done / empty / mixed task lists must never panic. Guards the
+        /// selection-state invariants (ratatui clears or clamps the state of
+        /// a list rendered empty/short, so a view using the wrong `ListState`
+        /// corrupts it).
+        #[test]
+        fn fuzz_random_keys_never_panics() {
+            let _guard = ENV_LOCK.lock().unwrap();
+            let _dir = setup_temp_config();
+            let pool = [
+                KeyCode::Char('h'),
+                KeyCode::Enter,
+                KeyCode::Esc,
+                KeyCode::Left,
+                KeyCode::Right,
+                KeyCode::Up,
+                KeyCode::Down,
+                KeyCode::Char('b'),
+                KeyCode::Char('t'),
+                KeyCode::Char('n'),
+                KeyCode::Char('r'),
+                KeyCode::Char('d'),
+                KeyCode::Char('v'),
+                KeyCode::Char('e'),
+                KeyCode::Char('p'),
+                KeyCode::Char('s'),
+                KeyCode::Char('c'),
+                KeyCode::Char('m'),
+                KeyCode::Char('j'),
+                KeyCode::Char('k'),
+                KeyCode::Char('g'),
+                KeyCode::Char('1'),
+                KeyCode::Char(' '),
+                KeyCode::Tab,
+                KeyCode::BackTab,
+                KeyCode::Char('x'),
+                KeyCode::Char('q'),
+            ];
+            let mut seed: u64 = 0x1234_5678_9abc_def0;
+            let mut next = move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed
+            };
+
+            for round in 0..300 {
+                let mut app = make_app(vec![
+                    Project {
+                        title: "all done".to_string(),
+                        tasks: vec![
+                            make_task("t1", TASK_STATUS_DONE, TASK_PRIORITY_NONE),
+                            make_task("t2", TASK_STATUS_DONE, 1),
+                        ],
+                    },
+                    Project {
+                        title: "empty".to_string(),
+                        tasks: vec![],
+                    },
+                    Project {
+                        title: "mixed".to_string(),
+                        tasks: vec![
+                            make_task("m1", TASK_STATUS_UP_NEXT, TASK_PRIORITY_NONE),
+                            make_task("m2", TASK_STATUS_DONE, 2),
+                        ],
+                    },
+                ]);
+                let keys: Vec<KeyEvent> = (0..40)
+                    .map(|_| key(pool[(next() % pool.len() as u64) as usize]))
+                    .collect();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let backend = TestBackend::new(80, 24);
+                    let terminal = Terminal::new(backend).unwrap();
+                    let mut source = ExhaustiveKeys {
+                        keys: keys.clone().into_iter().map(Some).collect(),
+                    };
+                    let _ = app.run_with_source(terminal, false, &mut source);
+                }));
+                if result.is_err() {
+                    panic!(
+                        "round {round} panicked with keys: {:?}",
+                        keys.iter().map(|k| k.code).collect::<Vec<_>>()
+                    );
+                }
+            }
         }
 
         #[test]
